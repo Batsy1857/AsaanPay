@@ -4,7 +4,7 @@
 
 AsaanPay is an educational synthetic payment-orchestration simulator for a DevOps software architecture assignment. Its purpose is to demonstrate how asynchronous orchestration changes latency while preserving deterministic decisions.
 
-Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Milestone 4 adds persistent checkout endpoints, atomic idempotency ownership, and single-instance startup recovery. UI and benchmarks remain planned; implementation stops at Milestone 4.
+Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Milestone 4 adds persistent checkout endpoints, atomic idempotency ownership, and single-instance startup recovery. Milestone 5 adds the responsive browser checkout, retry-safe API client, actual timing visualization, and an explicit two-mode comparison. Benchmarks remain planned; implementation stops at Milestone 5.
 
 The fixed scope is one FastAPI application, PostgreSQL, HTML/CSS/vanilla JavaScript, Docker Compose, two independent async simulator operations, and a pure decision coordinator. Both sequential and concurrent modes must implement the same decision semantics.
 
@@ -44,7 +44,7 @@ Concurrency here means overlapping async branch lifetimes on the event loop. It 
 | Risk screening | Decimal amount_pkr and billing_country; artificial delay applied by wrapper | Return immutable status, ordered HIGH_VALUE/CROSS_BORDER reason codes, and readable evidence including triggered values and threshold/country comparison. No dependency on issuer output, database, current time, randomness, or mode. May raise a technical failure. |
 | Async orchestrator | Synthetic inputs, mode, workload profile, branch timeout policy | Schedule/await both branches; collect results and monotonic timings; translate technical exceptions/timeouts into failure markers for the coordinator; clean up started tasks. |
 | Pure coordinator | Issuer and risk results, or explicit technical-failure markers | Return SUCCEEDED, DECLINED, VERIFICATION_REQUIRED, or ERROR according to the complete matrix below. No I/O, time access, state mutation, or knowledge of delays/mode. |
-| Browser UI, later | Attempt API responses | Submit synthetic requests, show decisions and explanations, poll nonterminal attempts, and label every configured delay as artificial. |
+| Browser UI | Attempt API responses | Submit synthetic requests, show decisions and explanations, poll nonterminal attempts, and label every configured delay as artificial. |
 | Benchmark runner, later | Fixed corpus, modes, profiles, fresh keys | Measure client API latency, retain server timing traces, check decisions, calculate overlap and summary statistics, and preserve raw results. |
 
 The coordinator treats missing/invalid results as ERROR and gives explicit technical failures precedence over business results. The orchestrator captures exceptions/timeouts as typed markers and retains branch traces; the coordinator does not execute operations or catch runtime exceptions itself.
@@ -268,7 +268,7 @@ Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/sc
 - No authentication platform, multi-tenant accounts, refunds, reconciliation ledger, manual verification workflow, or production availability claim.
 - No arbitrary public delay configuration or public fault-injection controls in the proposed baseline; fixed profiles keep the experiment small and reproducible.
 - No transaction or database connection held across simulator waits; no blocking simulator waits; no retries that rerun an existing idempotency key.
-- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. UI and benchmarks remain outside Milestone 4. No new dependencies or schema changes were needed.
+- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Milestone 5 adds the UI; benchmarks remain outside this milestone. No new dependencies or schema changes were needed.
 
 ## Current file tree and future components
 
@@ -284,14 +284,24 @@ asaanpay/
 │   ├── contracts.py            # immutable enums/dataclasses
 │   ├── simulators.py           # deterministic async engines, no waits
 │   ├── coordinator.py          # pure decision function
-│   └── orchestration.py        # sequential / TaskGroup, waits, deadlines, trace
+│   ├── orchestration.py        # sequential / TaskGroup, waits, deadlines, trace
+│   └── static/
+│       ├── index.html          # responsive semantic checkout page
+│       ├── styles.css          # navy/teal desktop and mobile layout
+│       ├── core.js             # client lifecycle and pure trace calculations
+│       └── app.js              # safe DOM rendering and user interactions
 ├── db/schema.sql
 ├── tests/
 │   ├── test_health.py          # mocked startup/health/recovery checks
 │   ├── test_checkouts.py       # validation and live PostgreSQL API/race checks
 │   ├── test_database.py        # opt-in PostgreSQL checks, rolled-back fixtures
 │   ├── test_decisions.py       # engine rules, matrix, and technical failures
-│   └── test_orchestration.py   # ordering, real overlap, deadlines, cancellation
+│   ├── test_orchestration.py   # ordering, real overlap, deadlines, cancellation
+│   ├── test_static.py          # static routes coexist with API routes
+│   ├── run_frontend.py         # optional installed-Chrome test runner
+│   ├── frontend.html          # isolated browser test harness
+│   ├── frontend_tests.js      # client tests and live browser smoke
+│   └── fixtures/timing_traces.json # captured actual trace evidence
 ├── requirements.txt
 ├── Dockerfile
 ├── compose.yaml
@@ -300,7 +310,7 @@ asaanpay/
 └── .dockerignore
 ```
 
-Future minimal additions are three static HTML/CSS/JS files and a benchmark runner. None are created in Milestone 4.
+The frontend is buildless and served by FastAPI. The benchmark runner remains a future addition; no benchmark framework or history dashboard is introduced in Milestone 5.
 
 ## Milestone 1 lifecycle and deployment
 
@@ -312,7 +322,7 @@ This follows [FastAPI lifespan guidance](https://fastapi.tiangolo.com/advanced/e
 
 ## Seven-day milestones
 
-Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration and Milestone 4 adds persistent checkout resources. The remaining schedule is planning only; Milestone 5 is not started.
+Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration and Milestone 4 adds persistent checkout resources. Milestone 5 adds the checkout UI and measured timelines. Days 6–7 remain planning only.
 
 | Day | Planned work | Reviewable completion evidence |
 | --- | --- | --- |
@@ -333,10 +343,10 @@ Days are relative project days. Milestone 1 covers infrastructure and Milestone 
 | Rules | Merchant PK; approved/declined card presets; VERIFY for amount >= 50000 or foreign billing country. Explainable fictional sandbox behavior, never real authorization. |
 | Timeouts/profiles | Two seconds per branch from its own start; lightweight 0/0, balanced 250/250, asymmetric 100/400 ms. All waits artificial. A common shorter global deadline would unfairly penalize sequential mode. |
 | Recovery | One API instance/process only. After connectivity at startup, unfinished rows may become ERROR with interruption reason, never rerun. Unsafe with multiple independent instances. Recovery runs before serving requests in Milestone 4. |
-| Storage | asyncpg, one db/schema.sql, no ORM/Alembic. Simple constraints now; request immutability/state-transition guards in future storage code. Existing volumes require deliberate schema management. |
+| Storage | asyncpg, one db/schema.sql, no ORM/Alembic. Simple constraints now; request immutability/state-transition guards in the storage adapter. Existing volumes require deliberate schema management. |
 | Amount representation | NUMERIC(14,2) preserves decimal PKR. Checkout validation rejects excess precision; canonical hashing uses a two-decimal string, avoiding binary-float identity differences. |
 
-Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. All three profiles are implemented; the benchmark runner remains deferred. These details do not expand Milestone 4.
+Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. All three profiles are implemented; the benchmark runner remains deferred. These details do not expand Milestone 5.
 
 ## Milestone 2 callable contracts
 
@@ -362,7 +372,7 @@ TaskGroup provides scoped task ownership and joining; cancellation behavior foll
 
 ## Milestone 3 timing trace
 
-The trace is a plain JSON-compatible object. All elapsed values come from actual `time.perf_counter_ns()` observations with one orchestration start origin immediately before branch execution/scheduling. Durations and overlap are calculated using integer nanoseconds before conversion to milliseconds. No values are rounded internally; a later UI may round for display. Trace construction/serialization, HTTP transport, and database work are excluded from orchestration duration.
+The trace is a plain JSON-compatible object. All elapsed values come from actual `time.perf_counter_ns()` observations with one orchestration start origin immediately before branch execution/scheduling. Durations and overlap are calculated using integer nanoseconds before conversion to milliseconds. No values are rounded internally; the UI rounds summary labels for display and exposes the original values in details. Trace construction/serialization, HTTP transport, and database work are excluded from orchestration duration.
 
 | Field | Meaning |
 | --- | --- |
@@ -393,3 +403,36 @@ The schema stores the final readable business explanation in decision_reason, or
 Cancellation propagates after the orchestrator has joined its child tasks. The owning request then attempts a bounded, directly awaited ERROR update with REQUEST_CANCELLED; there is no shielded/detached cleanup task. Repeated cancellation, interruption during an uncertain insert/commit, or storage failure may leave a nonterminal row. Do not rerun it: recover on the next exclusive startup. Already terminal rows cannot be overwritten, including when a response/commit acknowledgement is lost. Startup recovery is unsafe for multiple independent API instances or overlapping deployments.
 
 Live API integration tests use a dedicated one-connection pool, unique keys, and DELETE only their own records during teardown. A deterministic event gate holds the owner while five concurrent duplicates return 202; only one orchestration call occurs. The same test queries PostgreSQL from inside the injected orchestrator to prove the connection was released. Tests do not run global recovery against an already-running API. Milestone 1 startup tests verify recovery invocation and failure cleanup. Example POST/GET/replay curl commands are in [README](../README.md#submit-retrieve-and-replay).
+
+
+## Milestone 5 browser interface
+
+The only backend addition is `GET /` returning `app/static/index.html`, plus a `/static` mount resolved relative to `app/main.py`. Explicit static paths avoid shadowing `/api/health`, POST/GET checkouts, and API error responses. Existing lifespan, recovery, persistence, schema, orchestrator, and business contracts are unchanged. Docker's existing `COPY app` includes the assets; no deployment or dependency changes are necessary.
+
+`index.html` and `styles.css` provide semantic labels, keyboard-operable radio/select controls, visible focus, a status live region, and a centered checkout above the optional Architecture Explorer. Milestone 5.3 keeps the Explorer initially collapsed under a compact pastel-green header, with a native button exposing aria-expanded/aria-controls and a direction-changing chevron. Only its click handler toggles the panel; hidden controls remain associated with the checkout form and retain their values. Result rendering and recovery never automatically expand it. The default demo is PKR 7500, approved preset, PK billing, concurrent mode, and balanced artificial workload. These are UI choices; the API's lightweight default is unchanged because the UI always submits its explicit profile. A small country selector offers PK and representative cross-border examples; the API continues accepting any valid two-letter ASCII code. Real card numbers/CVV/bank details are never requested.
+
+`core.js` contains decimal-text input normalization, trace validation/layout, comparison arithmetic, and one small API client. `app.js` binds controls and renders returned data using `textContent`, not HTML interpolation. The API's state determines the result presentation: SUCCEEDED, DECLINED, VERIFICATION_REQUIRED, or technical ERROR. The UI shows branch business statuses, final explanation, ID, normalized inputs, mode, and profile. Individual risk reason codes are not currently persisted/exposed; when unavailable they are not inferred from inputs. The rules disclosure explains the fixed fictional policy separately from recorded evidence.
+
+### Submission, uncertainty, and retry
+
+Before a new POST, the client normalizes all five fields, generates `crypto.randomUUID()`, and retains that key/payload. Amounts remain exact decimal strings. An unresolved attempt, any known ID, and optional comparison baseline are saved in tab-scoped `sessionStorage`; reload offers an explicit retry without auto-submitting. Storage failure falls back to memory and displays a keep-this-tab-open notice. This is browser convenience, not a replacement for PostgreSQL idempotency or durable user accounts.
+
+The customer checkout uses one persistent card. Its form is hidden during a real request, replaced by a plain processing status, then one terminal outcome and **Make Another Payment**. That action restores the existing form values without requesting or clearing execution evidence. Uncertainty shows the error and **Retry same attempt**, with neither editable inputs nor a new-payment action. Completed results focus their heading for keyboard users. No animation, fabricated progress, or minimum waiting period is added.
+
+Only one request flow may run at a time. While busy or unresolved, input controls are locked. New submission is allowed only after a terminal resource or a definitive POST 409/422 rejection. HTTP 201, 200, and 202 describe creation, replay, and processing; they never imply a successful business outcome. 409 and 422 show actionable errors and require another explicit submit. Uncertain network/HTTP failures, unreadable responses, and 503 retain the original request for safe retry. A retry uses GET if the attempt ID is known, otherwise POST with the identical key and payload.
+
+CREATED/PROCESSING resources are polled via GET every 1000 ms with a 30-second polling budget. Individual fetches have a 10-second abort deadline, shortened to the remaining polling budget when applicable. The initial request has a separate budget. A timeout stops the browser's wait, not a promise that the server stopped or rolled back; retain uncertainty and offer retry. No live branch progress is claimed. No automatic fresh-key retry, worker, or public failure injection is added.
+
+### Timeline and comparison semantics
+
+The browser consumes the unchanged Milestone 3 trace directly. It checks the measurement/artificial flags, known mode/profile/status, finite nonnegative values, ordered intervals and decision/total offsets, and consistency between recorded durations/overlap and intervals (allowing only floating-point conversion tolerance). Missing, incomplete, or inconsistent data displays an unavailable state.
+
+The presentation layer chooses an axis maximum `A` from the largest valid recorded orchestration total in the displayed attempt(s), adding 5% headroom and rounding upward to a readable 1/2/2.5/5/10-based tick step. Bar start is `100 × start_ms / A` percent and width is `100 × (end_ms − start_ms) / A` percent. Both comparison plots use exactly the same zero-to-`A` scale, including after stacking on mobile. The underlying core trace calculations and recorded values are unchanged. A zero total produces zero-width bars; no minimum width, invented delay, mode-derived overlap, or animation is used. Summary labels use up to six significant digits, preserving small fractional values; expanded details and titles expose original numeric values. Recorded `duration_ms`, `orchestration_ms`, and `overlap_ms` are displayed without replacing them with configured delays. The trace is drawn only after an actual resource response; pending requests show an ordinary status indicator.
+
+**Compare with other mode** explicitly starts one new attempt with the baseline's same normalized amount/preset/country/profile and only the mode switched. It uses a new key, since execution mode is part of request identity. A single **Execution Comparison** container replaces the single-run visualization and includes both attempts, their IDs, and the summary. Sequential and concurrent sections share a common scale, equal desktop plot widths, and aligned chart/metric rows, without individual outer cards. On narrow screens the sections stack inside the same container. The customer outcome remains the original payment, while both comparison outcomes appear in the Explorer. Muted-blue issuer (#6796BC) and muted-green risk (#599879) bars use measured widths; a resize observer places bold white duration text directly on the bar when it fits, otherwise dark text outside without stretching bars. Duration text has no separate background. Toggling the Explorer retains the existing comparison and its DOM nodes. Comparison controls cannot silently use edited form values. The percentage is `(sequential_total − concurrent_total) / sequential_total × 100`, only for matching business inputs/results, complete valid traces, and a positive sequential duration. Negative reductions are labeled higher concurrent latency. Technical errors or mismatched outcomes show comparison unavailable. This is two illustrative observations, not a benchmark or history dashboard; no median/P95 claims are made.
+
+All views explicitly identify configured waits as artificial external I/O. Total orchestration excludes database/HTTP time and says nothing about actual payment-network latency or expensive fraud computation. Asyncio overlaps waits on one event loop; CPU parallelism is not implied.
+
+### Milestone 5 verification
+
+The original 47 backend tests remain intact. Three additional Python tests cover the page/assets, API route coexistence, and missing/traversal paths. Optional dependency-free browser tests use an existing Chrome/Chromium, a temporary isolated browser profile, and a short-lived localhost server proxying the existing sandbox API. Pure client tests cover state/status mapping, retries, key identity, polling bounds, comparison inputs, and layout math against captured real traces for all six profile/mode pairs. Browser smoke covers actual checkout/comparison requests, desktop/mobile layout, verification/decline rendering, safe uncertain retries, and fixture-driven technical ERROR/missing-trace/text-safety rendering. It creates synthetic attempts but does not delete existing data or run startup recovery. See README for commands and a manual demo. Milestone 6 is not implemented.

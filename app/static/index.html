@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102d38">
+  <meta name="description" content="A synthetic checkout sandbox for exploring sequential and concurrent payment orchestration. No real payments.">
+  <title>AsaanPay · Checkout sandbox</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230b766d'/%3E%3Cpath d='m8 23 8-15 8 15M11 18h10' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/core.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#checkout-card">Skip to checkout</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="AsaanPay home"><span class="brand-mark" aria-hidden="true">a<span>↗</span></span>AsaanPay<span class="brand-dot">.</span></a>
+      <span class="environment"><span aria-hidden="true"></span>Sandbox environment</span>
+    </div>
+  </header>
+  <main class="page">
+    <div class="page-intro">
+      <div><p class="eyebrow">THE CHECKOUT LAB</p><h1>One payment. Two paths.</h1>
+      <p class="intro-copy">Explore how independent checks work together.<br class="desktop-break"> Same decisions. A different way to get there.</p></div>
+    </div>
+    <div class="workspace">
+      <div class="checkout-column">
+        <div class="section-heading"><h2>Checkout</h2><span class="tag">CUSTOMER EXPERIENCE</span></div>
+        <section id="checkout-card" class="card checkout-card" aria-labelledby="checkout-heading" tabindex="-1" data-state="FORM">
+          <div class="store-heading"><div class="store-icon" aria-hidden="true">DS</div><div><p class="eyebrow">SANDBOX MERCHANT</p><h2 id="checkout-heading">Demo Store</h2></div><span class="tag">PK</span></div>
+          <form id="checkout-form">
+            <fieldset id="checkout-fields">
+              <legend class="sr-only">Synthetic checkout inputs</legend>
+              <label class="field-label" for="amount">Payment amount</label>
+              <div class="amount-field"><span>PKR</span><input id="amount" name="amount_pkr" type="text" inputmode="decimal" value="7500.00" required autocomplete="off" aria-describedby="amount-help"></div>
+              <p id="amount-help" class="field-help">Synthetic funds only. Up to two decimal places.</p>
+
+              <fieldset class="input-group"><legend class="field-label">Sandbox card preset</legend>
+                <div class="preset-options">
+                  <label class="choice preset"><input type="radio" name="card_preset" value="approved" checked><span class="choice-body"><span class="choice-icon" aria-hidden="true">✓</span><span><strong>Approved</strong><small>Issuer approves</small></span><span class="radio-dot" aria-hidden="true"></span></span></label>
+                  <label class="choice preset"><input type="radio" name="card_preset" value="declined"><span class="choice-body"><span class="choice-icon" aria-hidden="true">−</span><span><strong>Declined</strong><small>Issuer declines</small></span><span class="radio-dot" aria-hidden="true"></span></span></label>
+                </div>
+              </fieldset>
+
+              <label class="field-label" for="country">Billing country</label>
+              <select id="country" name="billing_country"><option value="PK">Pakistan (PK)</option value="AE">United Arab Emirates (AE)</option><option value="GB">United Kingdom (GB)</option><option value="US">United States (US)</option><option value="IN">India (IN)</option><option value="SA">Saudi Arabia (SA)</option></select>
+              <p class="field-help">Merchant country is fixed to Pakistan.</p>
+
+            </fieldset>
+            <button id="pay-button" class="button primary" type="submit"><span>Pay in sandbox</span><span aria-hidden="true">↗</span></button>
+          </form>
+          <p id="request-status" class="message" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+          <button id="retry-button" class="button primary" type="button" hidden>Retry same attempt</button>
+          <div id="checkout-result" hidden>
+            <div id="payment-outcomes" aria-label="Payment outcome"></div>
+            <button id="another-payment" class="button primary" type="button">Make Another Payment</button>
+          </div>
+          <p class="sandbox-note">No real card information. No real charges.<br>This is an educational payment simulator.</p>
+          <a class="explorer-link" href="#architecture-explorer">Explore simulation settings <span aria-hidden="true">↗</span></a>
+          <noscript><p class="message error">Enable JavaScript to use the sandbox checkout.</p></noscript>
+          <p id="storage-notice" class="field-help" hidden></p>
+        </section>
+
+      </div>
+
+      <section id="architecture-explorer" class="results-column architecture-explorer" aria-labelledby="execution-heading" tabindex="-1">
+        <div class="explorer-heading"><p class="eyebrow">BEHIND THE CHECKOUT</p><h2 id="execution-heading"><button id="explorer-toggle" type="button" aria-expanded="false" aria-controls="explorer-panel">Architecture Explorer<svg class="explorer-chevron" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></h2>
+          <p>These simulation controls and internal execution details are educational. A real customer would normally see only the checkout and payment outcome.</p>
+        </div>
+        <div id="explorer-panel" class="explorer-body" role="region" aria-labelledby="execution-heading" hidden>
+          <fieldset id="simulation-settings" class="simulation-settings">
+            <legend>Simulation Settings</legend>
+              <fieldset class="input-group"><legend class="field-label">Execution mode</legend>
+                <div class="mode-options">
+                  <label class="choice mode"><input type="radio" name="execution_mode" form="checkout-form" value="sequential"><span class="choice-body"><span aria-hidden="true">→</span> Sequential</span></label>
+                  <label class="choice mode"><input type="radio" name="execution_mode" form="checkout-form" value="concurrent" checked><span class="choice-body"><span aria-hidden="true">⇉</span> Concurrent</span></label>
+                </div>
+                <p id="mode-help" class="field-help">Start both independent checks, then join their results.</p>
+              </fieldset>
+              <label class="field-label" for="profile">Artificial workload</label>
+              <select id="profile" name="workload_profile" form="checkout-form" aria-describedby="profile-help"><option value="lightweight">Lightweight · 0 / 0 ms</option><option value="balanced" selected>Balanced · 250 / 250 ms</option><option value="asymmetric">Asymmetric · 100 / 400 ms</option></select>
+              <p id="profile-help" class="field-help">Issuer / risk artificial waits, not network latency.</p>
+          </fieldset>
+          <div class="section-heading"><h3>Recorded execution</h3><span class="tag">MEASURED, NOT MODELED</span></div>
+          <p id="execution-status" class="message" hidden></p>
+          <div id="empty-state" class="card empty-state">
+            <div class="empty-diagram" aria-hidden="true"><span class="diagram-node">↗</span><span class="diagram-join"></span><div><span>Issuer authorization</span><span>Risk screening</span></div></div>
+            <p class="eyebrow">READY TO EXPLORE</p><h3>See how the checks run.</h3>
+            <p>Pay in sandbox to inspect the recorded execution.<br class="desktop-break"> Your payment outcome appears above, with the checkout.</p>
+            <div class="empty-features"><span>01 &nbsp; Choose inputs</span><span>02 &nbsp; Run checks</span><span>03 &nbsp; Compare modes</span></div>
+          </div>
+          <section id="execution-output" class="card execution-output" aria-labelledby="execution-output-heading" hidden>
+            <h3 id="execution-output-heading">Execution Details</h3>
+            <div id="attempts"></div>
+            <div id="comparison-summary" class="comparison-summary" hidden></div>
+          </section>
+          <button id="compare-button" class="button secondary" type="button" hidden>Compare with other mode <span aria-hidden="true">⇄</span></button>
+          <p id="comparison-note" class="field-help comparison-note" hidden>A separate attempt with the same inputs and artificial workload. Both timelines share the same millisecond scale. An illustrative two-attempt comparison, not a formal benchmark.</p>
+          <aside class="explanation-card"><span class="info-icon" aria-hidden="true">i</span><div><h3>A sandbox for understanding concurrency</h3><p>Configured delays are artificial external I/O waits. Timelines show measured orchestration, not actual payment-network latency or fraud-computation performance.</p><details><summary>How the sandbox decides</summary><p>Approved + clear succeeds. An amount of PKR 50,000 or more, or billing outside PK, requires verification. A simulated issuer decline remains a decline. Any technical failure produces ERROR.</p><p>Concurrent mode overlaps asynchronous waits on one event loop; it does not inherently run CPU work in parallel.</p></details></div></aside>
+        </div>
+      </section>
+    </div>
+    <footer><span>AsaanPay · Built for learning.</span><span>Deterministic decisions. Observable execution.</span></footer>
+  </main>
+</body>
+</html>

@@ -1,8 +1,8 @@
 # AsaanPay
 
-An educational synthetic payment-orchestration simulator for a DevOps architecture assignment. Planned stack: one FastAPI application, PostgreSQL, HTML/CSS/vanilla JS, and Docker Compose. No real financial transactions or payment-provider integrations occur.
+An educational synthetic payment-orchestration simulator for a DevOps architecture assignment. Stack: one FastAPI application, PostgreSQL, HTML/CSS/vanilla JS, and Docker Compose. No real financial transactions or payment-provider integrations occur.
 
-Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Milestone 4 integrates persistent POST/GET checkout resources and idempotency. UI and benchmarks are **not implemented**. See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, future file tree, and seven-day milestones.
+Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Milestone 4 integrates persistent POST/GET checkout resources and idempotency. Milestone 5 adds a responsive checkout UI, retry-safe API integration, measured timelines, and an explicit two-mode comparison. The benchmark suite remains **not implemented**. See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, future file tree, and seven-day milestones.
 
 ## Start locally with Docker Compose
 
@@ -22,7 +22,43 @@ Expected HTTP 200: `{"status":"ok","database":"connected"}`. If you change `API_
 
 PostgreSQL must become healthy before the API starts. The lifespan creates the pool and closes it on shutdown. Initial database connection/configuration failure stops API startup with a clear message. After startup, every health request runs `SELECT 1`; an unavailable database returns HTTP 503 with `{"status":"unhealthy","database":"unavailable"}`. The query and pool wait are bounded to three seconds. Health does not verify table existence.
 
-## Verify Milestones 1–4
+## Use the checkout sandbox
+
+Open **http://localhost:18000/** when using `API_PORT=18000` (otherwise use your configured port). FastAPI serves the page and `/static/` assets; the browser uses relative `/api/` URLs. No build step, CDN, external images, browser framework, or extra container is needed.
+
+The centered checkout is the primary interface. Milestone 5.3 uses one card: the form is replaced by real processing feedback, then the final outcome. **Make Another Payment** restores the selected inputs; an uncertain request instead offers **Retry same attempt** with its original identity. **Architecture Explorer** sits below it, collapsed on every page load. Open its heading to access **Simulation Settings**, execution evidence, and comparison. Only explicit toggling changes its open state; submitting, retrying, and receiving results never open it. Closing the panel retains selected settings and completed results.
+
+1. Keep **PKR 7,500**, **Approved**, and **Pakistan**. Choose **Sequential** and **Balanced**, then **Pay in sandbox**. Expect SUCCEEDED, issuer APPROVED, risk CLEAR, and nonoverlapping measured bars.
+2. Click **Compare with other mode**. This explicitly creates a separate concurrent attempt with a fresh key and otherwise identical inputs. One **Execution Comparison** container replaces the single-run view, with both recorded timelines and a shared summary. The customer card retains the original payment outcome. Balanced concurrent runs should show measured overlap. The percentage is `(sequential − concurrent) / sequential × 100`; slower concurrent runs are labeled higher latency. This is an illustrative two-attempt comparison, **not a formal benchmark**.
+3. Click **Make Another Payment** for a new checkout; use **50,000** or a non-PK billing country to see VERIFICATION_REQUIRED. Choose the **Declined** preset to see DECLINED. Technical ERROR is displayed separately and never presented as a business decline. There are no public fault-injection controls.
+4. Try **Lightweight** and **Asymmetric**. The timeline uses actual stored start/end offsets, branch durations, total orchestration duration, and measured overlap. Comparison columns share one padded millisecond axis derived from the larger recorded total, so bar widths are directly comparable. They appear side by side on desktop and stack on mobile. Issuer bars are muted blue (#6796BC) and risk bars muted green (#599879); bold white duration labels sit directly on long bars, with dark text outside short ones without changing their measured widths. Expand **Exact recorded offsets & artificial waits** for unrounded values. Tiny durations retain fractional milliseconds, with no invented minimum bar width. Missing or malformed traces show **Timing unavailable**.
+5. Check 1440, 1024, 768, 390 and 320 px widths; comparison columns stack on narrow screens inside the same outer container. Tab through inputs, radio groups, submit, comparison, and disclosure controls. Pending requests use an ordinary loading message, never simulated progress.
+
+All configured waits are **artificial external I/O delays**, not real payment-network latency or fraud-computation measurements. Orchestration totals exclude HTTP and database work. The current stored API response exposes risk status and the final explanation, but not individual `HIGH_VALUE`/`CROSS_BORDER` reason codes; the UI explicitly indicates missing rule details instead of reconstructing them. Fictional rules remain available in the explanatory disclosure.
+
+New checkouts and explicit comparisons get fresh `crypto.randomUUID()` keys. Controls lock while pending to prevent duplicate submissions. The UI maps 201/200/202 to created/replayed/processing resources and always reads `state` for the outcome. A processing resource is polled every second for up to 30 seconds, with individual HTTP requests bounded to 10 seconds (the initial request has its own budget). After an uncertain response, 503, or exhausted polling period, **Retry same attempt** reuses the original payload/key, or retrieves the known ID. 409/422 are shown as definitive POST rejections without automatic resubmission.
+
+An unresolved attempt is saved in this tab's `sessionStorage` before POST and survives reload. Reload never automatically submits. If browser storage is unavailable, a notice asks you to keep the tab open; retry still works in memory. Do not close/clear the tab while resolving uncertainty: no account/history or cross-device recovery is provided. Changing form values cannot silently replace an unresolved attempt.
+
+### Browser and UI verification
+
+The Python suite contains three static-serving checks in addition to all 47 Milestone 4 tests. Run live database tests with the existing command below. To also run lightweight JavaScript tests and actual browser smoke, use an **already installed Chrome/Chromium** and a running local sandbox:
+
+```sh
+API_PORT=18000 docker compose up --build -d --wait
+curl --fail-with-body http://localhost:18000/api/health
+curl --fail --output /dev/null http://localhost:18000/
+docker compose exec -T -e RUN_DB_TESTS=1 api python -m unittest discover -s tests -v
+python3 tests/run_frontend.py --url http://localhost:18000
+# If Chrome is elsewhere:
+# python3 tests/run_frontend.py --url http://localhost:18000 --chrome /path/to/chromium
+```
+
+The browser runner uses a temporary profile and localhost-only test server, then closes both. It needs no npm packages or browser driver. The 40 checks cover the single-card state transitions, form restoration, collapsed Explorer, unified comparison, all five requested viewport widths, client status handling, idempotency/retry/polling, decimal normalization, calculations against captured real traces, comparison identity, real checkout/compare results, desktop/mobile layout, and safe error rendering. It creates a few synthetic attempts in the sandbox and preserves existing data. The technical ERROR and network-failure UI cases use browser-local response fixtures; they do not add backend fault controls. `tests/fixtures/timing_traces.json` contains actual local orchestrator observations for all six mode/profile pairs, used only by tests, never by the live UI.
+
+For a manual retry check, open browser developer tools, set Network to **Offline**, submit a valid checkout, and confirm **Retry same attempt** appears with inputs locked. Restore the network and retry; inspect POST headers/body to verify that the same key and inputs are sent. Reload while offline after an uncertain submission to check restoration. A server response can already have committed even when the browser fails to receive it, which is why retries must keep their key.
+
+## Verify Milestones 1–5
 
 ```sh
 docker compose exec api python -m unittest discover -s tests -v
@@ -86,7 +122,7 @@ For existing data that must be retained, review and apply an explicit SQL change
 
 Both sequential and concurrent modes must produce identical decisions. Per-branch timeout is two seconds. Workload profiles use explicitly **artificial waits**: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. Benchmarks will measure orchestration/API latency, actual branch overlap, correctness, median, and P95 using paired deterministic inputs and fresh keys.
 
-Before serving requests, startup recovery marks all CREATED/PROCESSING attempts ERROR with PROCESS_INTERRUPTED after database connectivity is established. It never reruns operations or overwrites terminal results. **This simple policy is unsafe for multiple independent API instances.** Use exactly one API process/instance, with no overlapping deployments. Milestone 4 is complete; Milestone 5 has not begun.
+Before serving requests, startup recovery marks all CREATED/PROCESSING attempts ERROR with PROCESS_INTERRUPTED after database connectivity is established. It never reruns operations or overwrites terminal results. **This simple policy is unsafe for multiple independent API instances.** Use exactly one API process/instance, with no overlapping deployments. Milestone 5 is complete; Milestone 6 has not begun.
 
 ## Milestone 2 interfaces
 

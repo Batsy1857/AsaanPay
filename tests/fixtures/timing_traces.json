@@ -1,0 +1,173 @@
+{
+  "source": "Actual orchestrate_payment observations, captured locally for Milestone 5. Fixtures are not runtime UI data or benchmark results.",
+  "traces": {
+    "lightweight_sequential": {
+      "execution_mode": "sequential",
+      "workload_profile": "lightweight",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.00125,
+          "end_ms": 0.082833,
+          "duration_ms": 0.081583,
+          "artificial_delay_ms": 0,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 0.086083,
+          "end_ms": 0.278042,
+          "duration_ms": 0.191959,
+          "artificial_delay_ms": 0,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 0.286667,
+      "orchestration_ms": 0.287917,
+      "overlap_ms": 0.0
+    },
+    "lightweight_concurrent": {
+      "execution_mode": "concurrent",
+      "workload_profile": "lightweight",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.077375,
+          "end_ms": 0.141583,
+          "duration_ms": 0.064208,
+          "artificial_delay_ms": 0,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 0.084208,
+          "end_ms": 0.206791,
+          "duration_ms": 0.122583,
+          "artificial_delay_ms": 0,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 0.361916,
+      "orchestration_ms": 0.364291,
+      "overlap_ms": 0.057375
+    },
+    "balanced_sequential": {
+      "execution_mode": "sequential",
+      "workload_profile": "balanced",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.000666,
+          "end_ms": 251.236333,
+          "duration_ms": 251.235667,
+          "artificial_delay_ms": 250,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 251.25275,
+          "end_ms": 503.631,
+          "duration_ms": 252.37825,
+          "artificial_delay_ms": 250,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 503.736041,
+      "orchestration_ms": 503.7395,
+      "overlap_ms": 0.0
+    },
+    "balanced_concurrent": {
+      "execution_mode": "concurrent",
+      "workload_profile": "balanced",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.400958,
+          "end_ms": 250.651208,
+          "duration_ms": 250.25025,
+          "artificial_delay_ms": 250,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 0.482666,
+          "end_ms": 250.722916,
+          "duration_ms": 250.24025,
+          "artificial_delay_ms": 250,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 250.810125,
+      "orchestration_ms": 250.811208,
+      "overlap_ms": 250.168542
+    },
+    "asymmetric_sequential": {
+      "execution_mode": "sequential",
+      "workload_profile": "asymmetric",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.001375,
+          "end_ms": 101.137625,
+          "duration_ms": 101.13625,
+          "artificial_delay_ms": 100,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 101.145125,
+          "end_ms": 502.241875,
+          "duration_ms": 401.09675,
+          "artificial_delay_ms": 400,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 502.296333,
+      "orchestration_ms": 502.298708,
+      "overlap_ms": 0.0
+    },
+    "asymmetric_concurrent": {
+      "execution_mode": "concurrent",
+      "workload_profile": "asymmetric",
+      "artificial_delays": true,
+      "measurement": "synthetic_orchestration_not_payment_network_latency",
+      "branch_timeout_ms": 2000.0,
+      "branches": {
+        "issuer": {
+          "start_ms": 0.295584,
+          "end_ms": 101.445625,
+          "duration_ms": 101.150041,
+          "artificial_delay_ms": 100,
+          "status": "completed",
+          "error_type": null
+        },
+        "risk": {
+          "start_ms": 0.371959,
+          "end_ms": 403.598917,
+          "duration_ms": 403.226958,
+          "artificial_delay_ms": 400,
+          "status": "completed",
+          "error_type": null
+        }
+      },
+      "decision_ms": 403.743375,
+      "orchestration_ms": 403.745334,
+      "overlap_ms": 101.073666
+    }
+  }
+}
