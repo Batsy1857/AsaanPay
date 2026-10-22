@@ -4,10 +4,12 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import asyncpg
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.checkouts import router
 from app.storage import StorageError, recover_unfinished
@@ -66,6 +68,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AsaanPay", lifespan=lifespan)
 app.include_router(router)
+static_directory = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=static_directory), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def checkout_page():
+    return FileResponse(static_directory / "index.html")
 
 
 @app.get("/api/health")
