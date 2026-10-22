@@ -4,7 +4,7 @@
 
 AsaanPay is an educational synthetic payment-orchestration simulator for a DevOps software architecture assignment. Its purpose is to demonstrate how asynchronous orchestration changes latency while preserving deterministic decisions.
 
-Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Checkout endpoints, rules, orchestration, UI, and benchmarks remain planned. The architectural decisions below are resolved; implementation stops at Milestone 1.
+Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Checkout endpoints, orchestration, delays, UI, and benchmarks remain planned; implementation stops at Milestone 2.
 
 The fixed scope is one FastAPI application, PostgreSQL, HTML/CSS/vanilla JavaScript, Docker Compose, two independent async simulator operations, and a pure decision coordinator. Both sequential and concurrent modes must implement the same decision semantics.
 
@@ -40,16 +40,16 @@ Concurrency here means overlapping async branch lifetimes on the event loop. It 
 | --- | --- | --- |
 | Request/API boundary | Idempotency key and proposed request body | Validate and normalize before creating an attempt; reject unknown fields; retrieve or reserve the durable attempt; serialize the stored result. |
 | Persistence adapter | Normalized request, immutable fingerprint, state/result updates | Atomically reserve a unique key, compare duplicates, enforce allowed state changes, and persist trace/outcome with short transactions. Never start simulator work. |
-| Simulated issuer | Immutable synthetic inputs and issuer artificial delay | Return APPROVED or DECLINED with a stable explanation code. No database calls, randomness, external requests, or dependence on mode. May raise a technical failure. |
-| Risk screening | The same immutable synthetic inputs and risk artificial delay | Return CLEAR or VERIFY with rule ID, observed value, threshold, and explanation. No dependency on issuer output, database, current time, randomness, or mode. May raise a technical failure. |
-| Async orchestrator | Attempt ID, normalized inputs, mode, workload profile, branch timeout policy | Schedule/await both branches; collect results and monotonic timings; call the coordinator only when both results are valid; convert technical failures into ERROR; clean up started tasks. |
-| Pure coordinator | Exactly one valid issuer result and one valid risk result | Return SUCCEEDED, DECLINED, or VERIFICATION_REQUIRED according to the complete matrix below. No I/O, time access, state mutation, or knowledge of delays/mode. |
+| Simulated issuer | Synthetic card_preset; artificial delays deferred to Milestone 3 | Return the APPROVED or DECLINED enum. No database calls, randomness, external requests, or dependence on mode. May raise a technical failure. |
+| Risk screening | Decimal amount_pkr and billing_country; artificial delays deferred | Return immutable status, ordered HIGH_VALUE/CROSS_BORDER reason codes, and readable evidence including triggered values and threshold/country comparison. No dependency on issuer output, database, current time, randomness, or mode. May raise a technical failure. |
+| Async orchestrator | Attempt ID, normalized inputs, mode, workload profile, branch timeout policy | Schedule/await both branches; collect results and monotonic timings; translate technical exceptions/timeouts into failure markers for the coordinator; clean up started tasks. |
+| Pure coordinator | Issuer and risk results, or explicit technical-failure markers | Return SUCCEEDED, DECLINED, VERIFICATION_REQUIRED, or ERROR according to the complete matrix below. No I/O, time access, state mutation, or knowledge of delays/mode. |
 | Browser UI, later | Attempt API responses | Submit synthetic requests, show decisions and explanations, poll nonterminal attempts, and label every configured delay as artificial. |
 | Benchmark runner, later | Fixed corpus, modes, profiles, fresh keys | Measure client API latency, retain server timing traces, check decisions, calculate overlap and summary statistics, and preserve raw results. |
 
-The orchestrator validates branch result contracts. Missing or invalid results are technical failures, not default approvals or declines. The coordinator is never asked to combine a partial result with an error.
+The coordinator treats missing/invalid results as ERROR and gives explicit technical failures precedence over business results. The future orchestrator will capture exceptions/timeouts as typed markers and retain partial traces; the coordinator does not execute operations or catch runtime exceptions itself.
 
-### Resolved fictional sandbox rules (not implemented yet)
+### Implemented fictional sandbox rules (Milestone 2)
 
 Merchant country is fixed to `PK`. `card_preset` accepts `approved` and `declined`, mapping deterministically to APPROVED and DECLINED. Risk is VERIFY if `amount_pkr >= 50000` **or** `billing_country != "PK"`; otherwise CLEAR. Explanations must identify every triggered rule, observed value, and threshold/country comparison. These are fictional sandbox rules, not financial or fraud advice.
 
@@ -79,7 +79,7 @@ SUCCEEDED, DECLINED, VERIFICATION_REQUIRED, and ERROR are terminal. CREATED and 
 | DECLINED | VERIFY | DECLINED | `ISSUER_DECLINED` |
 | Technical failure or timeout in either branch or orchestration | Any/absent | ERROR | Typed technical error; no business decision |
 
-A technical error takes precedence even if the other branch has already returned DECLINED. The pure coordinator implements only the first four rows; the orchestration boundary implements the error row.
+A technical error takes precedence even if the other branch has already returned DECLINED. The pure coordinator now implements all five rows using explicit BranchFailure markers for technical errors/timeouts, as required by Milestone 2. Translating runtime exceptions into those markers remains the future orchestration boundary's responsibility.
 
 Equivalence means matching terminal state, business decision reason, and deterministic branch results/explanations for the same business inputs and workload/fault scenario. IDs, execution mode, timestamps, and timings naturally differ. Failure traces may contain different partial work because a sequential branch may not have started when a failure occurs. Equivalent deterministic fault cases must still end in ERROR in both modes.
 
@@ -256,7 +256,7 @@ Deterministic fault/cancellation checks are separate from normal latency samples
 
 Future checks must cover the complete matrix, threshold boundaries, equality of both modes, technical failures/timeouts, cancellation cleanup, startup interruption recovery, and immutable terminal results. Idempotency checks must include simultaneous same-key requests, same-key replays during and after processing, a changed-payload 409 in both nonterminal and terminal states, default normalization, and replay of ERROR without restarting. Persistence checks must demonstrate that no database transaction/borrowed connection spans an artificial wait and that final state and trace are committed together.
 
-Milestone 1 tests only startup, health behavior, pool cleanup, and opt-in database/schema checks. No simulator tests or benchmark results exist yet. A later report must distinguish modeled wait estimates from observed measurements.
+Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/schema checks. Milestone 2 tests the full decision matrix, threshold/country combinations, multiple reasons, invalid inputs, typed failures/timeouts, deterministic repeated results, and immutable outputs. No benchmark results exist yet. A later report must distinguish modeled wait estimates from observed measurements.
 
 ## Constraints and deliberate exclusions
 
@@ -266,9 +266,9 @@ Milestone 1 tests only startup, health behavior, pool cleanup, and opt-in databa
 - No authentication platform, multi-tenant accounts, refunds, reconciliation ledger, manual verification workflow, or production availability claim.
 - No arbitrary public delay configuration or public fault-injection controls in the proposed baseline; fixed profiles keep the experiment small and reproducible.
 - No transaction or database connection held across simulator waits; no blocking simulator waits; no retries that rerun an existing idempotency key.
-- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Checkout processing, simulation, UI, and benchmark implementation remain outside this milestone.
+- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Checkout processing, orchestration, artificial delays, UI, and benchmarks remain outside Milestone 2.
 
-## Milestone 1 file tree and future components
+## Current file tree and future components
 
 ```text
 asaanpay/
@@ -276,11 +276,15 @@ asaanpay/
 ├── docs/architecture.md
 ├── app/
 │   ├── __init__.py
-│   └── main.py                 # lifespan pool and GET /api/health only
+│   ├── main.py                 # lifespan pool and GET /api/health only
+│   ├── contracts.py            # immutable enums/dataclasses
+│   ├── simulators.py           # deterministic async engines, no waits
+│   └── coordinator.py          # pure decision function
 ├── db/schema.sql
 ├── tests/
 │   ├── test_health.py          # mocked startup/health/cleanup checks
-│   └── test_database.py        # opt-in PostgreSQL checks, rolled-back fixtures
+│   ├── test_database.py        # opt-in PostgreSQL checks, rolled-back fixtures
+│   └── test_decisions.py       # engine rules, matrix, and technical failures
 ├── requirements.txt
 ├── Dockerfile
 ├── compose.yaml
@@ -289,7 +293,7 @@ asaanpay/
 └── .dockerignore
 ```
 
-Future minimal additions are `app/orchestration.py`, `app/simulators.py`, `app/coordinator.py`, `app/storage.py`, three static HTML/CSS/JS files, and a benchmark runner. None are created in Milestone 1.
+Future minimal additions are `app/orchestration.py`, `app/storage.py`, three static HTML/CSS/JS files, and a benchmark runner. None are created in Milestone 2.
 
 ## Milestone 1 lifecycle and deployment
 
@@ -301,14 +305,14 @@ This follows [FastAPI lifespan guidance](https://fastapi.tiangolo.com/advanced/e
 
 ## Seven-day milestones
 
-Days are relative project days. Milestone 1 includes the infrastructure foundation; the remaining schedule is planning only, and Milestone 2 is not started.
+Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. The remaining schedule is planning only; Milestone 3 is not started.
 
 | Day | Planned work | Reviewable completion evidence |
 | --- | --- | --- |
 | 1 | Resolve architecture; app, pool, health endpoint, initial schema, Compose, and verification. | Milestone 1 startup and connectivity evidence; no checkout behavior. |
-| 2 | One-table schema, storage adapter, reservation/finalization, and idempotency. | Atomic duplicate handling, immutable inputs, changed-payload 409, and short transaction boundaries demonstrated. |
-| 3 | Deterministic branches, pure coordinator, and sequential/concurrent orchestration. | All four matrix cells and threshold boundaries agree in both modes; business declines do not skip risk. |
-| 4 | Create/read API, timing trace, timeouts, cancellation, storage-error and startup recovery behavior. | API contract checks and deterministic failure cases produce the specified durable outcomes without restarting duplicates. |
+| 2 | Deterministic issuer/risk engines, explicit contracts, pure coordinator. | Full matrix, threshold/country rules, multiple reasons, deterministic results, and typed failure/timeout cases pass. |
+| 3 | Sequential/concurrent orchestration, artificial waits, timeouts, and timing. | Both modes agree on decisions; business declines do not skip risk. Planned only. |
+| 4 | Persistence/idempotency, create/read API, and startup recovery behavior. | API contract checks and deterministic failure cases produce the specified durable outcomes without restarting duplicates. |
 | 5 | Small browser UI and Docker Compose environment. | One app and PostgreSQL run together; UI shows explanations, states, and clearly labeled artificial delays. |
 | 6 | Paired benchmarks and correctness verification. | Raw observations, environment notes, median/P95 summaries, overlap measurements, error counts, and pair comparisons available. |
 | 7 | Review results and limitations; finish assignment demonstration and usage documentation. | Repeatable demonstration of both modes, all business outcomes, idempotency, and a technical failure; conclusions supported by measured data. |
@@ -325,4 +329,14 @@ Days are relative project days. Milestone 1 includes the infrastructure foundati
 | Storage | asyncpg, one db/schema.sql, no ORM/Alembic. Simple constraints now; request immutability/state-transition guards in future storage code. Existing volumes require deliberate schema management. |
 | Amount representation | NUMERIC(14,2) preserves decimal PKR. Future validation rejects excess precision; canonical hashing uses a two-decimal string, avoiding binary-float identity differences. |
 
-Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. The optional asymmetric profile is allowed by the schema but its simulator is not implemented. These details do not expand Milestone 1.
+Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. The optional asymmetric profile is allowed by the schema but its simulator is not implemented. These details do not expand Milestone 2.
+
+## Milestone 2 callable contracts
+
+`app/contracts.py` defines IssuerResult, RiskStatus, RiskReason, BranchFailure, and DecisionState enums, plus frozen RiskResult and Decision dataclasses. A business DECLINED is a successful issuer computation, distinct from a technical failure.
+
+`await simulate_issuer(card_preset: str) -> IssuerResult` and `await screen_risk(amount_pkr: Decimal, billing_country: str) -> RiskResult` execute immediately without I/O or artificial waits. The latter requires an exact finite positive Decimal within NUMERIC(14,2) bounds, rejects nonzero precision beyond two fractional digits, and normalizes two ASCII country letters to uppercase. Extra trailing decimal zeros are harmless. Unsupported presets or invalid countries/amounts raise validation errors; they never silently approve/clear. No real card fields are accepted.
+
+`coordinate_decision(issuer, risk) -> Decision` is synchronous and has no mode, timing, database, or HTTP inputs. It accepts a typed issuer/risk result or BranchFailure.TECHNICAL_ERROR / BranchFailure.TIMEOUT in either position. A missing result may be represented by None. Explicit failures take precedence; two failures use stable issuer-first priority. Missing/invalid results without a failure marker produce ERROR with INVALID_BRANCH_RESULT. The returned state, reason_code, and readable reason are immutable. This does not add an ERROR value to the business-only database decision column: a future persistence adapter stores state ERROR, decision NULL, and the technical reason in error_reason.
+
+The coordinator never schedules tasks or turns a caught exception into a marker itself. Tests pass explicit failure markers to simulate technical outcomes. Runtime exception capture, cancellation, two-second deadlines, and branch timing are deferred to Milestone 3. No schema change is necessary.
