@@ -4,7 +4,7 @@
 
 AsaanPay is an educational synthetic payment-orchestration simulator for a DevOps software architecture assignment. Its purpose is to demonstrate how asynchronous orchestration changes latency while preserving deterministic decisions.
 
-Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Checkout endpoints, persistence operations, UI, and benchmarks remain planned; implementation stops at Milestone 3.
+Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Milestone 4 adds persistent checkout endpoints, atomic idempotency ownership, and single-instance startup recovery. UI and benchmarks remain planned; implementation stops at Milestone 4.
 
 The fixed scope is one FastAPI application, PostgreSQL, HTML/CSS/vanilla JavaScript, Docker Compose, two independent async simulator operations, and a pure decision coordinator. Both sequential and concurrent modes must implement the same decision semantics.
 
@@ -38,7 +38,7 @@ Concurrency here means overlapping async branch lifetimes on the event loop. It 
 
 | Component | Inputs | Outputs and obligations |
 | --- | --- | --- |
-| Request/API boundary | Idempotency key and proposed request body | Validate and normalize before creating an attempt; reject unknown fields; retrieve or reserve the durable attempt; serialize the stored result. |
+| Request/API boundary | Idempotency key and validated request body | Validate and normalize before creating an attempt; reject unknown fields; retrieve or reserve the durable attempt; serialize the stored result. |
 | Persistence adapter | Normalized request, immutable fingerprint, state/result updates | Atomically reserve a unique key, compare duplicates, enforce allowed state changes, and persist trace/outcome with short transactions. Never start simulator work. |
 | Simulated issuer | Synthetic card_preset; artificial delay applied by orchestration wrapper | Return the APPROVED or DECLINED enum. No database calls, randomness, external requests, or dependence on mode. May raise a technical failure. |
 | Risk screening | Decimal amount_pkr and billing_country; artificial delay applied by wrapper | Return immutable status, ordered HIGH_VALUE/CROSS_BORDER reason codes, and readable evidence including triggered values and threshold/country comparison. No dependency on issuer output, database, current time, randomness, or mode. May raise a technical failure. |
@@ -83,26 +83,26 @@ A technical error takes precedence even if the other branch has already returned
 
 Equivalence means matching terminal state, business decision reason, and deterministic branch results/explanations for the same business inputs and workload/fault scenario. IDs, execution mode, timestamps, and timings naturally differ. Failure traces may contain different partial work because a sequential branch may not have started when a failure occurs. Equivalent deterministic fault cases must still end in ERROR in both modes.
 
-## Proposed persistence and idempotency contract
+## Implemented persistence and idempotency contract
 
 Use one `payment_attempts` table. No separate issuer, risk, event-log, or benchmark tables are needed for the baseline.
 
-| Proposed field(s) | Purpose and constraints |
+| Field(s) | Purpose and constraints |
 | --- | --- |
 | `id` | Server-generated UUID primary key. |
-| `idempotency_key` | Required, unique, case-sensitive string; proposed length 1–128 printable ASCII characters without whitespace. Immutable. |
+| `idempotency_key` | Required, unique, case-sensitive string; length 1–128 printable ASCII characters without whitespace. Immutable. |
 | `request_fingerprint` | Immutable SHA-256 digest of the canonical normalized request. |
 | `amount_pkr`, `card_preset`, `billing_country` | Normalized synthetic inputs. Merchant country is fixed in application policy, not a request field. |
 | `execution_mode`, `workload_profile` | Execution controls included in the fingerprint. |
 | `state` | One of the six states. |
 | `rule_set_version` | Synthetic rule version, initially `sandbox_v1`. |
-| `issuer_result`, `risk_result` | Nullable constrained text results; explanations will be stored with the trace. |
+| `issuer_result`, `risk_result` | Nullable constrained business-result strings. Failed branches have null business results; technical status stays in the unchanged orchestration trace. |
 | `decision`, `decision_reason` | Nullable business outcome and explanation. Decision must agree with state when present; ERROR has no business decision. |
 | `error_reason` | Nullable technical failure/interruption reason; required for ERROR. |
-| `timing_trace` | Nullable JSONB object for delays, actual intervals, completion status, and explanations. |
+| `timing_trace` | Nullable JSONB object preserving the Milestone 3 delays, intervals, and technical completion statuses exactly. |
 | `created_at`, `processing_started_at`, `finished_at` | Timezone-aware audit timestamps; start/finish nullable until reached. |
 
-`db/schema.sql` is the only schema source. It uses ordinary NOT NULL, CHECK, primary-key, and unique constraints; no ORM, Alembic, triggers, or migration framework. Request immutability and legal state transitions remain obligations of the future persistence adapter: updates will name only mutable columns and use state guards. The initial schema does not prevent direct SQL administrators from changing request fields. This keeps Milestone 1 small without claiming database-enforced immutability that is not implemented.
+`db/schema.sql` is the only schema source. It uses ordinary NOT NULL, CHECK, primary-key, and unique constraints; no ORM, Alembic, triggers, or migration framework. The storage adapter enforces request immutability and legal state transitions by updating only mutable columns with state guards. The initial schema does not prevent direct SQL administrators from changing request fields. This keeps Milestone 1 small without claiming database-enforced immutability that is not implemented.
 
 ### Canonical request and duplicate behavior
 
@@ -120,7 +120,7 @@ Concurrent same-key submissions are resolved by PostgreSQL's unique constraint. 
 
 This is duplicate suppression with one original processing owner, not a promise that every accepted attempt completes across crashes. If an insertion/commit outcome is uncertain, do not launch operations speculatively; return a storage error and reconcile through the same key. The recovery policy below prevents interrupted attempts from being rerun.
 
-## Planned checkout API contract (not implemented in Milestone 1)
+## Implemented checkout API contract (Milestone 4)
 
 Use a small resource API under `/api/checkouts`. The first POST processes inline and normally waits for a durable terminal outcome. Duplicate callers can receive a nonterminal snapshot and use GET to poll. No detached job runner is implied by returning 202 for a duplicate.
 
@@ -130,7 +130,7 @@ Use a small resource API under `/api/checkouts`. The first POST processes inline
 
 | Request field | Contract |
 | --- | --- |
-| `amount_pkr` | Required positive decimal PKR amount with at most two fractional digits, within NUMERIC(14,2) bounds; reject booleans and nonfinite values. |
+| `amount_pkr` | Required positive decimal PKR amount as a JSON number or decimal string, with at most two significant fractional digits within NUMERIC(14,2) bounds; reject booleans/nonfinite values. JSON fractional tokens are parsed directly as Decimal; trailing zeros are accepted. |
 | `billing_country` | Required two-letter country code, normalized to uppercase. Merchant country remains PK. |
 | `card_preset` | Required: `approved` or `declined`. |
 | `execution_mode` | Required: `sequential` or `concurrent`. |
@@ -148,19 +148,19 @@ Illustrative JSON request, not application code:
 }
 ```
 
-The response resource proposes these fields:
+POST and GET return this stable resource structure:
 
 | Response field | Meaning |
 | --- | --- |
 | `id`, `state`, `terminal` | Attempt identity, current state, and whether it has a final outcome. |
-| `request` | Stored normalized synthetic inputs and execution controls. |
+| `request` | Stored normalized inputs/controls; amount_pkr is a fixed two-decimal string and country is uppercase. |
 | `rule_set_version` | Rules used for this attempt. |
-| `issuer_result`, `risk_result` | Result strings or null; explanation details are retained in the timing trace. |
-| `decision`, `decision_reason`, `error_reason` | Business outcome/reason or sanitized technical reason; null while absent. No stack traces in public errors. |
+| `issuer_result`, `risk_result` | Business-result strings or null. Technical branch status remains in the timing trace; full engine explanation objects are not separately persisted by this schema. |
+| `decision`, `decision_reason`, `error_reason` | Business state and readable decision_reason, or nonempty sanitized error_reason for ERROR with decision/decision_reason null. No stack traces. |
 | `timing_trace` | Configured artificial delay values, actual branch intervals/statuses, and orchestration duration; null until a trace is available. |
 | `created_at`, `processing_started_at`, `finished_at` | UTC timestamps. |
 
-An active duplicate may expose only a state and null result/trace fields; live per-branch updates are not required. Response and stored field names are provisional, but the meaning and consistency requirements are fixed. State remains authoritative; the optional business decision must equal the business terminal state when populated.
+An active duplicate may expose only a state and null result/trace fields; live per-branch updates are not required. Response names are stable for V1. State remains authoritative; the optional business decision must equal the business terminal state when populated.
 
 | HTTP status | Meaning |
 | --- | --- |
@@ -173,9 +173,9 @@ An active duplicate may expose only a state and null result/trace fields; live p
 | 503 | Storage is unavailable or durable reservation/finalization cannot be confirmed. No terminal result is promised. |
 | 500 | Unexpected failure of the API boundary that cannot be returned as a durably stored attempt resource. |
 
-POST responses containing an attempt include a `Location` header for its GET resource. A 202 response may include a proposed `Retry-After: 1`. Duplicate responses return the stored attempt's identity and outcome, although the HTTP status differs from the original 201.
+POST responses containing an attempt include a `Location` header for its GET resource. A 202 response includes `Retry-After: 1`. Duplicate responses return the stored attempt's identity and outcome, although the HTTP status differs from the original 201.
 
-Non-resource API errors use an `error` object with `code` and `message`, plus `attempt_id` when a reserved attempt is known. A 409 response must not disclose a different caller's submitted payload. A failed HTTP response does not by itself establish whether a reservation or final commit occurred; callers reconcile using the same key.
+Non-resource API errors use FastAPI's `detail` envelope (a sanitized message; malformed UUID validation may use a validation-detail list). A 409 response must not disclose a different caller's submitted payload. A failed HTTP response does not by itself establish whether a reservation or final commit occurred; callers reconcile using the same key.
 
 Treating a durably recorded simulator ERROR as 201 separates successful resource creation from simulation outcome. This resolved status-code policy means clients and benchmarks must inspect `state`, not interpret all 2xx responses as SUCCEEDED.
 
@@ -191,7 +191,7 @@ Treating a durably recorded simulator ERROR as 201 separates successful resource
 | Risk requests verification | VERIFICATION_REQUIRED only if issuer is APPROVED; otherwise DECLINED. |
 | Branch exception or invalid result | ERROR with a sanitized code and component. Retain any completed peer result for explanation, without applying the decision matrix. |
 | Branch timeout | ERROR with `BRANCH_TIMEOUT` and branch identity; record the actual elapsed time and configured deadline. |
-| Coordinator or orchestration exception | Propagate to the future request boundary, which will persist ERROR; never substitute a business outcome. |
+| Coordinator or orchestration exception | Propagate to the request boundary, which persists ERROR when storage is available; never substitute a business outcome. |
 | Cancellation after reservation | Stop and await started branch tasks; best effort persist ERROR with `REQUEST_CANCELLED`. If persistence cannot complete, use interrupted-attempt recovery. |
 | Database failure before a confirmed reservation | Return 503; run no simulator operations. |
 | Database failure after reservation/finalization attempt | Return 503 if durability cannot be established; do not claim a terminal decision or start a second simulation. Re-read the row when storage recovers before any state repair. |
@@ -201,11 +201,11 @@ The per-branch timeout is 2000 ms (2 seconds), measured from that branch's actua
 
 Milestone 3 resolves the earlier proposed fail-fast policy by joining both branches after ordinary technical failures in both modes. Each wrapper converts Exception instances and timeouts into typed results, so TaskGroup observes normal completion and waits for its peer. This retains both branch outcomes and consistent deterministic error priority at the cost of waiting for the peer's remaining timeout budget. Two failures retain both traces, with issuer-first primary error priority in the unchanged coordinator.
 
-Genuine asyncio.CancelledError is re-raised, never converted to ERROR. Parent cancellation causes TaskGroup to cancel and await its children; sequential execution propagates cancellation through the currently awaited wrapper. A child that independently cancels is re-raised when its task result is retrieved after the group joins. No final result/trace is returned for a cancelled orchestration. Internal unexpected orchestration/coordinator bugs propagate to the future API boundary rather than being mislabeled as a branch failure. Injected operations must cooperate with cancellation; asyncio deadlines cannot forcibly preempt blocking CPU work or a coroutine that suppresses cancellation.
+Genuine asyncio.CancelledError is re-raised, never converted to ERROR. Parent cancellation causes TaskGroup to cancel and await its children; sequential execution propagates cancellation through the currently awaited wrapper. A child that independently cancels is re-raised when its task result is retrieved after the group joins. No final result/trace is returned for a cancelled orchestration. Internal unexpected orchestration/coordinator bugs propagate to the API boundary rather than being mislabeled as a branch failure. Injected operations must cooperate with cancellation; asyncio deadlines cannot forcibly preempt blocking CPU work or a coroutine that suppresses cancellation.
 
 A client disconnect is not a request to run the payment again. If the request task remains active, it may finish normally; if it is cancelled, apply cancellation cleanup and best effort error persistence. A subsequent same-key request retrieves whichever durable state exists. Do not promise disconnect survival without a worker system.
 
-Resolved recovery policy, to implement with future checkout persistence: before accepting traffic on startup, mark leftover CREATED/PROCESSING rows ERROR with `PROCESS_INTERRUPTED` in a short transaction. Preserve available evidence and mark missing timing as incomplete; do not invent durations after a crash. Do not change already terminal rows. If PostgreSQL is unavailable, startup recovery cannot complete and the application must not begin serving attempts. This policy requires there to be no other live application process working on those rows. This simple recovery policy is NOT safe for multiple independent API instances. Multiple workers, overlapping deployments, and lease-based recovery require a new design. Milestone 1 performs no recovery updates because checkout processing is not implemented.
+Implemented single-instance recovery policy: before accepting traffic on startup, mark leftover CREATED/PROCESSING rows ERROR with `PROCESS_INTERRUPTED` in a short transaction. Preserve available evidence and mark missing timing as incomplete; do not invent durations after a crash. Do not change already terminal rows. If PostgreSQL is unavailable, startup recovery cannot complete and the application must not begin serving attempts. This policy requires there to be no other live application process working on those rows. This simple recovery policy is NOT safe for multiple independent API instances. Multiple workers, overlapping deployments, and lease-based recovery require a new design. Milestone 4 runs this update after pool creation and before serving traffic; a recovery failure stops startup and closes the pool.
 
 An infrastructure failure can prevent an ERROR from being written immediately. If the process survives a failed final write, the attempt may remain nonterminal until an exclusive application restart performs recovery; live background repair is not proposed. A commit that actually succeeded must be preserved when the row is read again. Until storage and recovery are available, an existing nonterminal row is evidence of an interrupted/uncertain attempt, not permission to rerun it. There are no automatic branch retries, and API callers must reuse the same key when reconciling an uncertain response.
 
@@ -268,7 +268,7 @@ Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/sc
 - No authentication platform, multi-tenant accounts, refunds, reconciliation ledger, manual verification workflow, or production availability claim.
 - No arbitrary public delay configuration or public fault-injection controls in the proposed baseline; fixed profiles keep the experiment small and reproducible.
 - No transaction or database connection held across simulator waits; no blocking simulator waits; no retries that rerun an existing idempotency key.
-- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Checkout persistence/API, UI, and benchmarks remain outside Milestone 3.
+- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. UI and benchmarks remain outside Milestone 4. No new dependencies or schema changes were needed.
 
 ## Current file tree and future components
 
@@ -278,14 +278,17 @@ asaanpay/
 ├── docs/architecture.md
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # lifespan pool and GET /api/health only
+│   ├── main.py                 # lifespan pool, recovery, health, route registration
+│   ├── checkouts.py            # validation, canonicalization, POST/GET resources
+│   ├── storage.py              # atomic ownership and guarded durable updates
 │   ├── contracts.py            # immutable enums/dataclasses
 │   ├── simulators.py           # deterministic async engines, no waits
 │   ├── coordinator.py          # pure decision function
 │   └── orchestration.py        # sequential / TaskGroup, waits, deadlines, trace
 ├── db/schema.sql
 ├── tests/
-│   ├── test_health.py          # mocked startup/health/cleanup checks
+│   ├── test_health.py          # mocked startup/health/recovery checks
+│   ├── test_checkouts.py       # validation and live PostgreSQL API/race checks
 │   ├── test_database.py        # opt-in PostgreSQL checks, rolled-back fixtures
 │   ├── test_decisions.py       # engine rules, matrix, and technical failures
 │   └── test_orchestration.py   # ordering, real overlap, deadlines, cancellation
@@ -297,7 +300,7 @@ asaanpay/
 └── .dockerignore
 ```
 
-Future minimal additions are `app/storage.py`, three static HTML/CSS/JS files, and a benchmark runner. None are created in Milestone 3.
+Future minimal additions are three static HTML/CSS/JS files and a benchmark runner. None are created in Milestone 4.
 
 ## Milestone 1 lifecycle and deployment
 
@@ -309,7 +312,7 @@ This follows [FastAPI lifespan guidance](https://fastapi.tiangolo.com/advanced/e
 
 ## Seven-day milestones
 
-Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration. The remaining schedule is planning only; Milestone 4 is not started.
+Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration and Milestone 4 adds persistent checkout resources. The remaining schedule is planning only; Milestone 5 is not started.
 
 | Day | Planned work | Reviewable completion evidence |
 | --- | --- | --- |
@@ -329,11 +332,11 @@ Days are relative project days. Milestone 1 covers infrastructure and Milestone 
 | Request identity | SHA-256 over canonical normalized amount_pkr, card_preset, billing_country, execution_mode, workload_profile. Exclude generated IDs/timestamps. Changing mode/profile requires a new key. |
 | Rules | Merchant PK; approved/declined card presets; VERIFY for amount >= 50000 or foreign billing country. Explainable fictional sandbox behavior, never real authorization. |
 | Timeouts/profiles | Two seconds per branch from its own start; lightweight 0/0, balanced 250/250, asymmetric 100/400 ms. All waits artificial. A common shorter global deadline would unfairly penalize sequential mode. |
-| Recovery | One API instance/process only. After connectivity at startup, unfinished rows may become ERROR with interruption reason, never rerun. Unsafe with multiple independent instances. Recovery writes are deferred until checkout persistence exists. |
+| Recovery | One API instance/process only. After connectivity at startup, unfinished rows may become ERROR with interruption reason, never rerun. Unsafe with multiple independent instances. Recovery runs before serving requests in Milestone 4. |
 | Storage | asyncpg, one db/schema.sql, no ORM/Alembic. Simple constraints now; request immutability/state-transition guards in future storage code. Existing volumes require deliberate schema management. |
-| Amount representation | NUMERIC(14,2) preserves decimal PKR. Future validation rejects excess precision; canonical hashing uses a two-decimal string, avoiding binary-float identity differences. |
+| Amount representation | NUMERIC(14,2) preserves decimal PKR. Checkout validation rejects excess precision; canonical hashing uses a two-decimal string, avoiding binary-float identity differences. |
 
-Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. All three profiles are implemented; the benchmark runner remains deferred. These details do not expand Milestone 3.
+Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. All three profiles are implemented; the benchmark runner remains deferred. These details do not expand Milestone 4.
 
 ## Milestone 2 callable contracts
 
@@ -341,19 +344,19 @@ Benchmark size remains a planning default of 10 warm-ups and 100 measured attemp
 
 `await simulate_issuer(card_preset: str) -> IssuerResult` and `await screen_risk(amount_pkr: Decimal, billing_country: str) -> RiskResult` execute immediately without I/O or artificial waits. The latter requires an exact finite positive Decimal within NUMERIC(14,2) bounds, rejects nonzero precision beyond two fractional digits, and normalizes two ASCII country letters to uppercase. Extra trailing decimal zeros are harmless. Unsupported presets or invalid countries/amounts raise validation errors; they never silently approve/clear. No real card fields are accepted.
 
-`coordinate_decision(issuer, risk) -> Decision` is synchronous and has no mode, timing, database, or HTTP inputs. It accepts a typed issuer/risk result or BranchFailure.TECHNICAL_ERROR / BranchFailure.TIMEOUT in either position. A missing result may be represented by None. Explicit failures take precedence; two failures use stable issuer-first priority. Missing/invalid results without a failure marker produce ERROR with INVALID_BRANCH_RESULT. The returned state, reason_code, and readable reason are immutable. This does not add an ERROR value to the business-only database decision column: a future persistence adapter stores state ERROR, decision NULL, and the technical reason in error_reason.
+`coordinate_decision(issuer, risk) -> Decision` is synchronous and has no mode, timing, database, or HTTP inputs. It accepts a typed issuer/risk result or BranchFailure.TECHNICAL_ERROR / BranchFailure.TIMEOUT in either position. A missing result may be represented by None. Explicit failures take precedence; two failures use stable issuer-first priority. Missing/invalid results without a failure marker produce ERROR with INVALID_BRANCH_RESULT. The returned state, reason_code, and readable reason are immutable. This does not add an ERROR value to the business-only database decision column: the persistence adapter stores state ERROR, decision NULL, and the technical reason in error_reason.
 
 The coordinator never schedules tasks or turns a caught exception into a marker itself. Tests pass explicit failure markers to simulate technical outcomes. Milestone 3 implements runtime exception capture, cancellation propagation, two-second deadlines, and branch timing around the unchanged engines. No schema change is necessary.
 
 ## Milestone 3 callable interface and fork/join
 
-`await orchestrate_payment(amount_pkr: Decimal, card_preset: str, billing_country: str, execution_mode: str, workload_profile: str = "lightweight") -> OrchestrationResult` has no HTTP or PostgreSQL dependencies. Invalid mode/profile/timeout configuration is rejected before starting work. Engine input validation errors are ordinary branch failures at this boundary; future HTTP input validation must still reject invalid requests before orchestration.
+`await orchestrate_payment(amount_pkr: Decimal, card_preset: str, billing_country: str, execution_mode: str, workload_profile: str = "lightweight") -> OrchestrationResult` has no HTTP or PostgreSQL dependencies. Invalid mode/profile/timeout configuration is rejected before starting work. Engine input validation errors are ordinary branch failures at this boundary; HTTP input validation rejects invalid requests before orchestration.
 
 Sequential mode awaits the issuer wrapper then the risk wrapper. Concurrent mode creates both wrapper tasks in one `asyncio.TaskGroup`; exiting the group joins them, then the same pure `coordinate_decision` function combines the typed results. The branches use the same `simulate_issuer` and `screen_risk` implementations in both modes, with no mode argument passed into the business rules. Each wrapper awaits `asyncio.sleep` for its configured artificial delay before invoking its engine. Even the zero-delay profile yields cooperatively.
 
 The keyword-only `branch_timeout_seconds` defaults to 2.0; `issuer_fn` and `risk_fn` default to the existing engines. Injection is an internal testing seam with the original engine signatures, not a public fault-injection feature. Ordinary Exception instances (including malformed return types) become BranchFailure.TECHNICAL_ERROR; TimeoutError becomes BranchFailure.TIMEOUT. Raw exception messages are omitted. External cancellation propagates. The timeout budget begins at each branch's actual execution and includes its artificial wait plus engine call, not time awaiting the previous sequential branch.
 
-The result contains `issuer_result`, `risk_result`, the unchanged coordinator `outcome`, and `timing_trace`. Its `explanation` property is outcome.reason. Its `decision` property is None for ERROR, otherwise the business terminal state, preserving the database convention without writing any rows.
+The result contains `issuer_result`, `risk_result`, the unchanged coordinator `outcome`, and `timing_trace`. Its `explanation` property is outcome.reason. Its `decision` property is None for ERROR, otherwise the business terminal state, preserving the database convention without itself writing any rows; the API owns persistence.
 
 TaskGroup provides scoped task ownership and joining; cancellation behavior follows the [Python asyncio documentation](https://docs.python.org/3.13/library/asyncio-task.html#task-groups). Async waits release the event loop so another branch can progress. CPU-heavy synchronous code would occupy that event loop; this implementation neither parallelizes CPU work nor measures genuine payment-service performance.
 
@@ -378,3 +381,15 @@ The trace is a plain JSON-compatible object. All elapsed values come from actual
 | `overlap_ms` | max(0, min(issuer_end, risk_end) - max(issuer_start, risk_start)), computed from raw measured intervals. |
 
 Cancelled execution records cleanup internally but raises CancelledError instead of returning a fabricated outcome or partial trace. Ordinary failure/timeout traces retain both intervals; their overlap is diagnostic and must be excluded from later normal-performance summaries. No absolute monotonic timestamp is exposed as a wall-clock date.
+
+## Milestone 4 persistence implementation and limits
+
+`app/checkouts.py` parses raw JSON with Decimal fractional tokens before Pydantic validation; binary floating-point conversion is avoided. Unknown fields, unsupported presets/modes/profiles, invalid country codes, invalid amounts, malformed JSON, and missing/invalid/repeated Idempotency-Key headers return 422 before reservation. The response amount is always a decimal string. Canonical serialization uses sorted keys, compact separators, a fixed two-decimal amount string, uppercase country, and applied defaults. Fingerprints exclude IDs and timestamps.
+
+`app/storage.py` uses only the existing pool and schema. Each pool query is a separate autocommitted statement with a five-second bound including acquisition. Reservation is INSERT ON CONFLICT DO NOTHING RETURNING; the losing path performs a separate SELECT with a fresh READ COMMITTED snapshot. It compares both fingerprint and normalized payload. Only the successful inserter executes CREATED -> PROCESSING -> orchestration -> terminal. There are no global locks, detached jobs, open database transactions, or borrowed connections during orchestration. One guarded terminal UPDATE stores state, branch business-result strings, decision/explanation, error_reason, and the unchanged JSONB trace atomically. ERROR branch-result columns are null where that branch failed; a completed peer's business result is retained.
+
+The schema stores the final readable business explanation in decision_reason, or a sanitized code and explanation in error_reason. Full RiskResult explanation objects are not separately stored; preserving the existing schema and trace takes precedence over adding new explanation storage. The documented response exposes stored values only and never re-executes the engines on GET/replay.
+
+Cancellation propagates after the orchestrator has joined its child tasks. The owning request then attempts a bounded, directly awaited ERROR update with REQUEST_CANCELLED; there is no shielded/detached cleanup task. Repeated cancellation, interruption during an uncertain insert/commit, or storage failure may leave a nonterminal row. Do not rerun it: recover on the next exclusive startup. Already terminal rows cannot be overwritten, including when a response/commit acknowledgement is lost. Startup recovery is unsafe for multiple independent API instances or overlapping deployments.
+
+Live API integration tests use a dedicated one-connection pool, unique keys, and DELETE only their own records during teardown. A deterministic event gate holds the owner while five concurrent duplicates return 202; only one orchestration call occurs. The same test queries PostgreSQL from inside the injected orchestrator to prove the connection was released. Tests do not run global recovery against an already-running API. Milestone 1 startup tests verify recovery invocation and failure cleanup. Example POST/GET/replay curl commands are in [README](../README.md#submit-retrieve-and-replay).

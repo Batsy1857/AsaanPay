@@ -1,4 +1,4 @@
-"""Milestone 1: application lifecycle and database connectivity only."""
+"""Application lifecycle, health, and persistent synthetic checkout API."""
 
 import asyncio
 import logging
@@ -8,6 +8,9 @@ from contextlib import asynccontextmanager
 import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from app.checkouts import router
+from app.storage import StorageError, recover_unfinished
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,10 @@ async def lifespan(app: FastAPI):
         ) from None
     app.state.pool = pool
     try:
+        try:
+            await recover_unfinished(pool)
+        except StorageError:
+            raise RuntimeError("PostgreSQL startup recovery failed; check database availability and schema") from None
         yield
     finally:
         try:
@@ -58,6 +65,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AsaanPay", lifespan=lifespan)
+app.include_router(router)
 
 
 @app.get("/api/health")

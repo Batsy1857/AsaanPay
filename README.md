@@ -2,7 +2,7 @@
 
 An educational synthetic payment-orchestration simulator for a DevOps architecture assignment. Planned stack: one FastAPI application, PostgreSQL, HTML/CSS/vanilla JS, and Docker Compose. No real financial transactions or payment-provider integrations occur.
 
-Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Checkout endpoints, persistence operations, and UI are **not implemented**. See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, future file tree, and seven-day milestones.
+Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Milestone 4 integrates persistent POST/GET checkout resources and idempotency. UI and benchmarks are **not implemented**. See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, future file tree, and seven-day milestones.
 
 ## Start locally with Docker Compose
 
@@ -22,7 +22,7 @@ Expected HTTP 200: `{"status":"ok","database":"connected"}`. If you change `API_
 
 PostgreSQL must become healthy before the API starts. The lifespan creates the pool and closes it on shutdown. Initial database connection/configuration failure stops API startup with a clear message. After startup, every health request runs `SELECT 1`; an unavailable database returns HTTP 503 with `{"status":"unhealthy","database":"unavailable"}`. The query and pool wait are bounded to three seconds. Health does not verify table existence.
 
-## Verify Milestones 1–3
+## Verify Milestones 1–4
 
 ```sh
 docker compose exec api python -m unittest discover -s tests -v
@@ -32,7 +32,7 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d 
 docker compose logs --tail=100 api db
 ```
 
-The default suite covers orchestration ordering/overlap, real branch timeouts, cancellation/task cleanup, deterministic engine rules, the full decision matrix, typed technical failures/timeouts, and repeated results. It also mocks database access and checks health success/failure/recovery, startup failure, pool cleanup, and absent checkout routes. The opt-in live test connects to PostgreSQL, verifies schema defaults, and checks unique-key/positive-amount constraints using fixtures rolled back afterward. Skipped live tests are not evidence of database connectivity.
+The default suite covers orchestration ordering/overlap, real branch timeouts, cancellation/task cleanup, deterministic engine rules, the full decision matrix, typed technical failures/timeouts, and repeated results. It also mocks database access and checks health success/failure/recovery, startup failure, pool cleanup, and checkout input validation. Checkout integration tests cover business outcomes, exact money parsing, replay/conflict behavior, gated duplicate races, cancellation, durable traces, and storage failure responses. The opt-in live tests connect to PostgreSQL and verify schema constraints and checkout behavior. Schema fixtures are rolled back; checkout tests use unique keys and delete only their own records. The tests do not run global startup recovery against an already-running database. Skipped live tests are not evidence of database connectivity.
 
 Optional outage check on this local sandbox:
 
@@ -71,11 +71,11 @@ docker compose up --build -d --wait
 
 For existing data that must be retained, review and apply an explicit SQL change instead of resetting. There is no ORM or Alembic.
 
-## Resolved future checkout behavior
+## Checkout API
 
-`POST /api/checkouts` will wait for execution and return 201 with the terminal state. Same-key identical normalized requests return 200 when finished or 202 when unfinished; changed payloads return 409. `GET /api/checkouts/{id}` will retrieve attempts or return 404. Invalid inputs return 422. These routes remain planned only.
+`POST /api/checkouts` waits for execution and return 201 with the terminal state. Same-key identical normalized requests return 200 when finished or 202 when unfinished; changed payloads return 409. `GET /api/checkouts/{id}` retrieves attempts or return 404. Invalid inputs return 422. Malformed IDs also return 422. Amounts may be JSON numbers or decimal strings; responses use fixed two-decimal strings. Extra fields are rejected.
 
-`Idempotency-Key` identifies an immutable SHA-256 fingerprint of canonical `amount_pkr`, `card_preset`, `billing_country`, `execution_mode`, and `workload_profile`. Database transactions will remain closed during simulator waits. Merchant country is PK. Presets are approved/declined; risk is VERIFY for amount >= 50000 PKR or non-PK billing, otherwise CLEAR. These are fictional sandbox rules. Amounts use NUMERIC(14,2); canonical decimal formatting and validation are specified in the architecture.
+`Idempotency-Key` identifies an immutable SHA-256 fingerprint of canonical `amount_pkr`, `card_preset`, `billing_country`, `execution_mode`, and `workload_profile`. Database transactions remain closed during simulator waits. Merchant country is PK. Presets are approved/declined; risk is VERIFY for amount >= 50000 PKR or non-PK billing, otherwise CLEAR. These are fictional sandbox rules. Amounts use NUMERIC(14,2); canonical decimal formatting and validation are specified in the architecture.
 
 | Issuer | Risk | State |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ For existing data that must be retained, review and apply an explicit SQL change
 
 Both sequential and concurrent modes must produce identical decisions. Per-branch timeout is two seconds. Workload profiles use explicitly **artificial waits**: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. Benchmarks will measure orchestration/API latency, actual branch overlap, correctness, median, and P95 using paired deterministic inputs and fresh keys.
 
-Future startup recovery may mark unfinished attempts ERROR with an interruption reason after database connectivity is established, without rerunning operations. **This simple policy is unsafe for multiple independent API instances.** Recovery writes are not part of Milestone 1. Milestone 3 is complete; Milestone 4 has not begun.
+Before serving requests, startup recovery marks all CREATED/PROCESSING attempts ERROR with PROCESS_INTERRUPTED after database connectivity is established. It never reruns operations or overwrites terminal results. **This simple policy is unsafe for multiple independent API instances.** Use exactly one API process/instance, with no overlapping deployments. Milestone 4 is complete; Milestone 5 has not begun.
 
 ## Milestone 2 interfaces
 
@@ -118,4 +118,43 @@ print(json.dumps(result.timing_trace, indent=2))
 PYTHON
 ```
 
-All three profiles are implemented: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. These are **artificial simulated service waits**, not actual issuer-network or fraud-computation measurements. `asyncio` lets waiting branches overlap on one event loop; it does not inherently parallelize CPU work. No benchmark framework or checkout persistence is added in this milestone.
+All three profiles are implemented: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. These are **artificial simulated service waits**, not actual issuer-network or fraud-computation measurements. `asyncio` lets waiting branches overlap on one event loop; it does not inherently parallelize CPU work. Milestone 3 added no persistence; Milestone 4 now persists its unchanged results and traces. The benchmark framework remains deferred.
+
+### Submit, retrieve, and replay
+
+After `docker compose up --build -d --wait`, run the following from the project root. Set `ASAANPAY_URL=http://localhost:18000` first if using the alternate port.
+
+```sh
+ASAANPAY_URL=${ASAANPAY_URL:-http://localhost:8000}
+CHECKOUT_KEY="demo-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+curl --fail-with-body -sS -D /tmp/asaanpay-headers.txt \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $CHECKOUT_KEY" \
+  -d '{"amount_pkr":"100.00","card_preset":"approved","billing_country":"pk","execution_mode":"concurrent","workload_profile":"balanced"}' \
+  "$ASAANPAY_URL/api/checkouts" > /tmp/asaanpay-checkout.json
+cat /tmp/asaanpay-headers.txt
+cat /tmp/asaanpay-checkout.json
+CHECKOUT_ID=$(python3 -c 'import json; print(json.load(open("/tmp/asaanpay-checkout.json"))["id"])')
+curl --fail-with-body "$ASAANPAY_URL/api/checkouts/$CHECKOUT_ID"
+# Same normalized payload/key: 200, same ID and stored trace, no execution.
+curl -i -H 'Content-Type: application/json' -H "Idempotency-Key: $CHECKOUT_KEY" \
+  -d '{"amount_pkr":100,"card_preset":"approved","billing_country":"PK","execution_mode":"concurrent","workload_profile":"balanced"}' \
+  "$ASAANPAY_URL/api/checkouts"
+# Changed amount under that key: 409.
+curl -i -H 'Content-Type: application/json' -H "Idempotency-Key: $CHECKOUT_KEY" \
+  -d '{"amount_pkr":"101.00","card_preset":"approved","billing_country":"PK","execution_mode":"concurrent","workload_profile":"balanced"}' \
+  "$ASAANPAY_URL/api/checkouts"
+```
+
+The first response is 201/SUCCEEDED. Use a fresh key and amount `50000` for VERIFICATION_REQUIRED, or preset `declined` for DECLINED. Business outcomes and durably persisted ERROR all return 201 for the creating POST. A matching in-progress duplicate returns 202 with `Location` and `Retry-After: 1`; poll GET or retry the same key. GET returns the same resource shape at every state.
+
+Responses contain `id`, `state`, `terminal`, normalized `request`, `rule_set_version`, nullable `issuer_result`/`risk_result`, `decision`, `decision_reason`, `error_reason`, `timing_trace`, and creation/start/finish timestamps. `decision_reason` is a readable business explanation; ERROR has `decision=null`, `decision_reason=null`, and a nonempty sanitized `error_reason`. Branch failures are represented by a null business branch result plus their status in the unchanged trace. The trace is stored as JSONB without recomputing or rounding timings. The key and fingerprint are not returned.
+
+### Persistence and failure boundaries
+
+The unique database constraint decides ownership through `INSERT ... ON CONFLICT DO NOTHING RETURNING`. Only the successful inserter transitions CREATED to PROCESSING and calls the orchestrator. Matching duplicates read stored state; differing canonical inputs return 409. Money is parsed directly as Decimal, normalized to two decimal places, country uppercased, defaults applied, and the five request fields hashed as sorted compact UTF-8 JSON. Mode/profile are part of request identity.
+
+Every database operation is a separate autocommitted statement with a released pool connection before simulation. Final state/results/trace are written together with a PROCESSING guard. Terminal attempts, including ERROR, are never rerun by duplicates. Request fields and fingerprint are never changed by storage updates.
+
+Database failure returns 503 instead of an invented success. A commit may have succeeded even when its acknowledgement was lost; reconcile with the same key. A failed final write may leave PROCESSING until the next exclusive startup recovery. Unexpected orchestration exceptions become a sanitized persisted ERROR when storage is available.
+
+Request cancellation propagates through the orchestrator and its task cleanup, followed by a bounded best-effort ERROR write. No background processing or shielded cleanup task is launched. Repeated cancellation, process loss, or database outage may prevent that write; startup recovery resolves remaining unfinished rows. A client disconnect may leave the request active until it finishes, depending on the server; do not assume it guarantees cancellation or successful completion. Error responses use FastAPI's `detail` envelope and do not expose SQL, passwords, or stack traces.

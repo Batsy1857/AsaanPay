@@ -27,6 +27,8 @@ class HealthTests(unittest.TestCase):
                 self.pool.close.assert_not_awaited()
             create.assert_awaited_once()
             self.pool.close.assert_awaited_once()
+            self.pool.execute.assert_awaited_once()
+            self.assertIn("WHERE state IN", self.pool.execute.call_args.args[0])
 
     def test_database_outage_and_recovery(self):
         with patch("app.main.asyncpg.create_pool", AsyncMock(return_value=self.pool)):
@@ -76,8 +78,17 @@ class HealthTests(unittest.TestCase):
         self.assertIn("exception=ValueError", logs.output[0])
         self.assertNotIn("secret-value", logs.output[0])
 
-    def test_checkout_routes_are_not_implemented(self):
+    def test_recovery_failure_closes_pool_and_stops_startup(self):
+        self.pool.execute.side_effect = asyncpg.UndefinedTableError("private SQL")
+        with patch("app.main.asyncpg.create_pool", AsyncMock(return_value=self.pool)):
+            with self.assertRaisesRegex(RuntimeError, "startup recovery failed") as raised:
+                with TestClient(app):
+                    self.fail("Recovery failure must prevent startup")
+        self.pool.close.assert_awaited_once()
+        self.assertNotIn("private", str(raised.exception))
+
+    def test_checkout_routes_validate_inputs(self):
         with patch("app.main.asyncpg.create_pool", AsyncMock(return_value=self.pool)):
             with TestClient(app) as client:
-                self.assertEqual(client.post("/api/checkouts", json={}).status_code, 404)
-                self.assertEqual(client.get("/api/checkouts/example").status_code, 404)
+                self.assertEqual(client.post("/api/checkouts", json={}).status_code, 422)
+                self.assertEqual(client.get("/api/checkouts/example").status_code, 422)
