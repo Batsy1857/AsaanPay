@@ -1,0 +1,498 @@
+{
+  "status": "PASS",
+  "complete": true,
+  "measured_attempts": 12,
+  "warmup_attempts": 6,
+  "measured_errors": 0,
+  "warmup_errors": 0,
+  "correct_measured_decisions": 12,
+  "matching_measured_pairs": 6,
+  "expected_measured_pairs": 6,
+  "unique_keys": 18,
+  "unique_attempt_ids": 18,
+  "groups": [
+    {
+      "profile": "lightweight",
+      "mode": "sequential",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 12.010271000000001,
+          "median": 12.010271000000001,
+          "p95": 19.201333,
+          "min": 4.819209,
+          "max": 19.201333,
+          "stdev": 10.169697408265796
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 0.0938125,
+          "median": 0.0938125,
+          "p95": 0.14525,
+          "min": 0.042375,
+          "max": 0.14525,
+          "stdev": 0.07274361011456607
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 0.028645499999999997,
+          "median": 0.028645499999999997,
+          "p95": 0.044166,
+          "min": 0.013125,
+          "max": 0.044166,
+          "stdev": 0.02194930159481162
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 0.049188,
+          "median": 0.049188,
+          "p95": 0.078084,
+          "min": 0.020292,
+          "max": 0.078084,
+          "stdev": 0.04086511509833295
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 12.010271000000001,
+        "median": 12.010271000000001,
+        "p95": 19.201333,
+        "min": 4.819209,
+        "max": 19.201333,
+        "stdev": 10.169697408265796
+      }
+    },
+    {
+      "profile": "lightweight",
+      "mode": "concurrent",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 5.855875,
+          "median": 5.855875,
+          "p95": 6.323708,
+          "min": 5.388042,
+          "max": 6.323708,
+          "stdev": 0.6616157735256918
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 0.0710205,
+          "median": 0.0710205,
+          "p95": 0.078583,
+          "min": 0.063458,
+          "max": 0.078583,
+          "stdev": 0.010694990065446532
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 0.0160625,
+          "median": 0.0160625,
+          "p95": 0.018542,
+          "min": 0.013583,
+          "max": 0.018542,
+          "stdev": 0.003506542527904089
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 0.027750499999999997,
+          "median": 0.027750499999999997,
+          "p95": 0.030417,
+          "min": 0.025084,
+          "max": 0.030417,
+          "stdev": 0.0037710004640678584
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 0.0082085,
+          "median": 0.0082085,
+          "p95": 0.009292,
+          "min": 0.007125,
+          "max": 0.009292,
+          "stdev": 0.0015323003948312483
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 5.855875,
+        "median": 5.855875,
+        "p95": 6.323708,
+        "min": 5.388042,
+        "max": 6.323708,
+        "stdev": 0.6616157735256918
+      }
+    },
+    {
+      "profile": "balanced",
+      "mode": "sequential",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 528.603521,
+          "median": 528.603521,
+          "p95": 540.354083,
+          "min": 516.852959,
+          "max": 540.354083,
+          "stdev": 16.617804145905843
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 508.026125,
+          "median": 508.026125,
+          "p95": 511.645708,
+          "min": 504.406542,
+          "max": 511.645708,
+          "stdev": 5.118863368735103
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 253.0643545,
+          "median": 253.0643545,
+          "p95": 254.640083,
+          "min": 251.488626,
+          "max": 254.640083,
+          "stdev": 2.228416615317809
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 254.834937,
+          "median": 254.834937,
+          "p95": 256.866583,
+          "min": 252.803291,
+          "max": 256.866583,
+          "stdev": 2.873181327141042
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 528.603521,
+        "median": 528.603521,
+        "p95": 540.354083,
+        "min": 516.852959,
+        "max": 540.354083,
+        "stdev": 16.617804145905843
+      }
+    },
+    {
+      "profile": "balanced",
+      "mode": "concurrent",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 266.467542,
+          "median": 266.467542,
+          "p95": 270.905625,
+          "min": 262.029459,
+          "max": 270.905625,
+          "stdev": 6.276397169537481
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 253.3972495,
+          "median": 253.3972495,
+          "p95": 255.559458,
+          "min": 251.235041,
+          "max": 255.559458,
+          "stdev": 3.0578245853783943
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 253.092125,
+          "median": 253.092125,
+          "p95": 255.129209,
+          "min": 251.055041,
+          "max": 255.129209,
+          "stdev": 2.880871820493244
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 253.266979,
+          "median": 253.266979,
+          "p95": 255.367833,
+          "min": 251.166125,
+          "max": 255.367833,
+          "stdev": 2.9710562193657637
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 253.077875,
+          "median": 253.077875,
+          "p95": 255.10675,
+          "min": 251.049,
+          "max": 255.10675,
+          "stdev": 2.869262541359712
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 266.467542,
+        "median": 266.467542,
+        "p95": 270.905625,
+        "min": 262.029459,
+        "max": 270.905625,
+        "stdev": 6.276397169537481
+      }
+    },
+    {
+      "profile": "asymmetric",
+      "mode": "sequential",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 517.339583,
+          "median": 517.339583,
+          "p95": 518.899666,
+          "min": 515.7795,
+          "max": 518.899666,
+          "stdev": 2.2062905370277335
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 505.4494375,
+          "median": 505.4494375,
+          "p95": 506.734667,
+          "min": 504.164208,
+          "max": 506.734667,
+          "stdev": 1.8175889896620117
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 103.2891455,
+          "median": 103.2891455,
+          "p95": 104.925083,
+          "min": 101.653208,
+          "max": 104.925083,
+          "stdev": 2.313564999694731
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 401.98400000000004,
+          "median": 401.98400000000004,
+          "p95": 402.474958,
+          "min": 401.493042,
+          "max": 402.474958,
+          "stdev": 0.6943194621555788
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 517.339583,
+        "median": 517.339583,
+        "p95": 518.899666,
+        "min": 515.7795,
+        "max": 518.899666,
+        "stdev": 2.2062905370277335
+      }
+    },
+    {
+      "profile": "asymmetric",
+      "mode": "concurrent",
+      "attempted": 2,
+      "valid": 2,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 2,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 2,
+      "decisions": {
+        "SUCCEEDED": 1,
+        "DECLINED": 1
+      },
+      "cases": {
+        "below_approved": 1,
+        "below_declined": 1
+      },
+      "first_in_pair": 1,
+      "metrics": {
+        "http_ms": {
+          "n": 2,
+          "mean": 415.6909795,
+          "median": 415.6909795,
+          "p95": 419.040417,
+          "min": 412.341542,
+          "max": 419.040417,
+          "stdev": 4.736819938821024
+        },
+        "orchestration_ms": {
+          "n": 2,
+          "mean": 402.021083,
+          "median": 402.021083,
+          "p95": 402.989833,
+          "min": 401.052333,
+          "max": 402.989833,
+          "stdev": 1.3700193885489358
+        },
+        "issuer_ms": {
+          "n": 2,
+          "mean": 101.31260449999999,
+          "median": 101.31260449999999,
+          "p95": 101.564667,
+          "min": 101.060542,
+          "max": 101.564667,
+          "stdev": 0.35647020606566965
+        },
+        "risk_ms": {
+          "n": 2,
+          "mean": 401.7552705,
+          "median": 401.7552705,
+          "p95": 402.736,
+          "min": 400.774541,
+          "max": 402.736,
+          "stdev": 1.3869609599193777
+        },
+        "overlap_ms": {
+          "n": 2,
+          "mean": 101.3006665,
+          "median": 101.3006665,
+          "p95": 101.549875,
+          "min": 101.051458,
+          "max": 101.549875,
+          "stdev": 0.3524340405586579
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 2,
+        "mean": 415.6909795,
+        "median": 415.6909795,
+        "p95": 419.040417,
+        "min": 412.341542,
+        "max": 419.040417,
+        "stdev": 4.736819938821024
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "profile": "lightweight",
+      "median_reduction_percent": {
+        "http_ms": null,
+        "orchestration_ms": null
+      },
+      "interpretation": "Lightweight differences are overhead/noise; no speed improvement claimed."
+    },
+    {
+      "profile": "balanced",
+      "median_reduction_percent": {
+        "http_ms": 49.59028243022241,
+        "orchestration_ms": 50.12121679765976
+      },
+      "interpretation": "Descriptive reduction only; synthetic waits, no significance test."
+    },
+    {
+      "profile": "asymmetric",
+      "median_reduction_percent": {
+        "http_ms": 19.648332901679385,
+        "orchestration_ms": 20.462651024317346
+      },
+      "interpretation": "Descriptive reduction only; synthetic waits, no significance test."
+    }
+  ],
+  "failures": []
+}

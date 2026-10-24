@@ -177,7 +177,10 @@
     const deadline = performance.now() + 12000;
     while (!condition()) { if (performance.now() > deadline) throw new Error("UI wait expired"); await new Promise(r => setTimeout(r, 50)); }
   }
-  await until(() => frame.contentDocument && frame.contentDocument.getElementById("pay-button"));
+  // The form can exist while deferred app.js is still loading. Wait for the
+  // iframe load to finish before clicking controls or submitting a checkout.
+  await until(() => frame.contentDocument && frame.contentDocument.readyState === "complete"
+    && frame.contentDocument.getElementById("pay-button"));
   const doc = frame.contentDocument;
   const win = frame.contentWindow;
   const form = doc.getElementById("checkout-form");

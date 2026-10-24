@@ -4,7 +4,7 @@
 
 AsaanPay is an educational synthetic payment-orchestration simulator for a DevOps software architecture assignment. Its purpose is to demonstrate how asynchronous orchestration changes latency while preserving deterministic decisions.
 
-Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Milestone 4 adds persistent checkout endpoints, atomic idempotency ownership, and single-instance startup recovery. Milestone 5 adds the responsive browser checkout, retry-safe API client, actual timing visualization, and an explicit two-mode comparison. Benchmarks remain planned; implementation stops at Milestone 5.
+Milestone 1 implements only the FastAPI entry point, lifespan-managed asyncpg pool, database health endpoint, initial schema, Docker Compose setup, and minimal verification tests. Milestone 2 adds deterministic issuer/risk engines, immutable result contracts, and a pure decision coordinator. Milestone 3 implements both execution modes, artificial waits, branch deadlines, and timing traces. Milestone 4 adds persistent checkout endpoints, atomic idempotency ownership, and single-instance startup recovery. Milestone 5 adds the responsive browser checkout, retry-safe API client, actual timing visualization, and an explicit two-mode comparison. Milestone 6 adds controlled, paired endpoint benchmarks with retained measurements and reliability validation. Implementation stops at Milestone 6; presentation work remains deferred.
 
 The fixed scope is one FastAPI application, PostgreSQL, HTML/CSS/vanilla JavaScript, Docker Compose, two independent async simulator operations, and a pure decision coordinator. Both sequential and concurrent modes must implement the same decision semantics.
 
@@ -45,7 +45,7 @@ Concurrency here means overlapping async branch lifetimes on the event loop. It 
 | Async orchestrator | Synthetic inputs, mode, workload profile, branch timeout policy | Schedule/await both branches; collect results and monotonic timings; translate technical exceptions/timeouts into failure markers for the coordinator; clean up started tasks. |
 | Pure coordinator | Issuer and risk results, or explicit technical-failure markers | Return SUCCEEDED, DECLINED, VERIFICATION_REQUIRED, or ERROR according to the complete matrix below. No I/O, time access, state mutation, or knowledge of delays/mode. |
 | Browser UI | Attempt API responses | Submit synthetic requests, show decisions and explanations, poll nonterminal attempts, and label every configured delay as artificial. |
-| Benchmark runner, later | Fixed corpus, modes, profiles, fresh keys | Measure client API latency, retain server timing traces, check decisions, calculate overlap and summary statistics, and preserve raw results. |
+| Benchmark runner (Milestone 6) | Fixed corpus, modes, profiles, fresh keys | Measure client API latency, retain server timing traces, check decisions, calculate overlap and summary statistics, and preserve raw results. |
 
 The coordinator treats missing/invalid results as ERROR and gives explicit technical failures precedence over business results. The orchestrator captures exceptions/timeouts as typed markers and retains branch traces; the coordinator does not execute operations or catch runtime exceptions itself.
 
@@ -209,7 +209,7 @@ Implemented single-instance recovery policy: before accepting traffic on startup
 
 An infrastructure failure can prevent an ERROR from being written immediately. If the process survives a failed final write, the attempt may remain nonterminal until an exclusive application restart performs recovery; live background repair is not proposed. A commit that actually succeeded must be preserved when the row is read again. Until storage and recovery are available, an existing nonterminal row is evidence of an interrupted/uncertain attempt, not permission to rerun it. There are no automatic branch retries, and API callers must reuse the same key when reconciling an uncertain response.
 
-## Timing trace and benchmark plan
+## Timing trace and controlled benchmark
 
 ### Artificial workload profiles
 
@@ -239,26 +239,26 @@ Each persisted trace must identify the artificial profile and configured delays 
 
 Interval overlap demonstrates simultaneous outstanding branch work, not simultaneous CPU execution or real network I/O. Compute it from measured intervals, never from the configured delays or the selected mode. Normal sequential runs should have zero overlap; concurrent 250/250 runs should show overlap, while 0/0 overlap may be negligible.
 
-### Proposed repeatable procedure
+### Implemented repeatable procedure (Milestone 6)
 
-1. Record source revision, rule-set version, Python/PostgreSQL versions, host resources, container resource limits if any, application worker count, timeout settings, profiles, and measurement method. Keep the same environment for both modes.
-2. Build a deterministic four-case corpus: each issuer scenario crossed with one below-threshold and one at-threshold amount. The decision matrix is the oracle. Check the nearby risk boundaries separately. Never use a mode or a random value to choose branch results.
-3. Warm up each mode/profile with 10 attempts, excluded from reported statistics. Reuse the same client connection policy and keep the database/container setup consistent.
-4. Measure 100 fresh attempts per mode per profile: 25 for each matrix combination. Match sequential/concurrent runs by business inputs, profile, and rules. Each attempt gets a new idempotency key so a replay cannot masquerade as a fast execution.
-5. Alternate which mode runs first within each pair, using a recorded, fixed corpus ordering. Run one API request at a time. This experiment measures concurrency inside one attempt, not concurrent-client throughput.
-6. Store raw observations in output files without adding a database table: pair/case ID, attempt ID, mode, artificial delays, expected and observed decision, HTTP status, branch intervals, overlap, orchestration latency, client API latency, and error details. Raw output format is proposed as JSONL or CSV.
-7. Compare every result with the matrix and every pair with each other. Require no decision mismatches; investigate and report a mismatch rather than hiding it inside a latency summary. Report nonterminal responses, unexpected duplicate responses, timeouts, and transport/storage failures as invalid performance samples with counts and reasons.
-8. Summarize valid observations by profile and mode, and retain per-case counts to show equal input composition. Report sample size, errors, correctness rate, median/P95 orchestration latency, median/P95 API latency, and median/P95 measured overlap. Report the all-submission correctness rate as correct expected terminal outcomes divided by measured submissions; report pair agreement separately so matching but wrong outcomes cannot pass.
-9. Define median as the middle sorted value, or the mean of the two middle values for an even count. Define P95 by nearest rank: sorted sample at one-based index `ceil(0.95 × n)`. State these definitions with the result table and show unavailable metrics as N/A when no valid samples exist.
-10. Optionally report median speedup as sequential median divided by concurrent median, separately for orchestration and API latency. Do not imply that API latency must halve, or that these results predict production performance. Preserve the raw data, environment notes, and failure counts with the report.
+1. Use the running local endpoint with one API worker and a synchronous client. Record the client environment, source hashes/revision, rules, timeout, profiles, and run configuration. Supply recorded server/container metadata with `--environment-json` when available.
+2. Cycle a fixed ten-case corpus: both issuer presets crossed with below/at/above-threshold domestic amounts, a low foreign amount, and both risk triggers. Both modes receive identical paired business inputs. Expected outcomes are specified independently of the application coordinator.
+3. Run **5 warm-ups per mode/profile**, then **50 measured attempts per mode/profile**: **30 warm-ups and 300 measured attempts**. Counts are CLI-configurable. At the default size each case appears five times per mode/profile. Warm-ups never enter measured statistics.
+4. Rotate profile order by round and counterbalance which mode runs first in adjacent pairs. Each mode is first 25 times per profile at the default size. Use fresh unique prefixed keys for every request. One outstanding request measures within-checkout concurrency, not throughput.
+5. Retain raw CSV/JSONL including request identity, case/pair/order, response body, status, decision, HTTP elapsed time, branch intervals/durations/overlap, and server `orchestration_ms`. Never infer timings from configured waits.
+6. Validate expected decisions, pair equivalence (including explanation), fresh 201 resources/unique IDs, echoed inputs, and actual trace arithmetic. Sequential overlap must be zero; delayed concurrent profiles must overlap. The numeric tolerance is 0.000001 ms (1 ns), solely for arithmetic precision.
+7. Preserve every failed or invalid submission, count it in error/correctness denominators, flag the experiment FAIL, and exit nonzero. Stop if execution is uncertain (such as transport failure or nonterminal response) so another checkout cannot overlap outstanding server work. No retries or polling enter timing samples.
+8. Summarize valid measured samples by mode/profile: mean, median, nearest-rank P95 (`ceil(0.95 × n)`, one-based), min, max, and sample standard deviation (n−1) for HTTP, orchestration, issuer, risk, and overlap. Empty metrics are unavailable, not zero. Include all-attempt HTTP diagnostic statistics and complete failure details separately.
+9. Report measured decision correctness, mode-pair agreement, errors/rates, case/order counts, and median concurrent reductions for complete valid delayed workloads. Do not claim meaningful speed improvement for lightweight timing differences. Label synthetic expectations separately from actual measurements.
+10. Preserve artifacts under `benchmarks/results/`; never clean up database rows automatically. [Benchmark guide](../benchmarks/README.md) documents clean-start reproduction, the exact measurement policy, and optional deletion using a run's exact key manifest. [Full report](../benchmarks/results/milestone6-full/report.md) and [verification](../benchmarks/verification.md) contain the completed evidence.
 
 Deterministic fault/cancellation checks are separate from normal latency samples. Verify that technical failures and branch timeouts produce ERROR in both modes, that valid declines still await risk, and that no peer task is left running. Real scheduling or infrastructure may cause a timeout in only one mode; report this as a failed equivalence sample/infrastructure limitation, not an acceptable decision difference.
 
-### Planned validation evidence
+### Validation evidence
 
-Future checks must cover the complete matrix, threshold boundaries, equality of both modes, technical failures/timeouts, cancellation cleanup, startup interruption recovery, and immutable terminal results. Idempotency checks must include simultaneous same-key requests, same-key replays during and after processing, a changed-payload 409 in both nonterminal and terminal states, default normalization, and replay of ERROR without restarting. Persistence checks must demonstrate that no database transaction/borrowed connection spans an artificial wait and that final state and trace are committed together.
+Regression checks cover the complete matrix, threshold boundaries, equality of both modes, technical failures/timeouts, cancellation cleanup, startup interruption recovery, and immutable terminal results. Idempotency checks must include simultaneous same-key requests, same-key replays during and after processing, a changed-payload 409 in both nonterminal and terminal states, default normalization, and replay of ERROR without restarting. Persistence checks must demonstrate that no database transaction/borrowed connection spans an artificial wait and that final state and trace are committed together.
 
-Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/schema checks. Milestone 2 tests the full decision matrix, threshold/country combinations, multiple reasons, invalid inputs, typed failures/timeouts, deterministic repeated results, and immutable outputs. Milestone 3 also tests mode equivalence, actual overlap/critical path, per-branch deadlines, cancellation, and absence of orphaned tasks. No benchmark study exists yet. A later report must distinguish modeled wait estimates from observed measurements.
+Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/schema checks. Milestone 2 tests the full decision matrix, threshold/country combinations, multiple reasons, invalid inputs, typed failures/timeouts, deterministic repeated results, and immutable outputs. Milestone 3 also tests mode equivalence, actual overlap/critical path, per-branch deadlines, cancellation, and absence of orphaned tasks. Milestone 6 preserves actual endpoint measurements and distinguishes modeled wait estimates from observed results.
 
 ## Constraints and deliberate exclusions
 
@@ -268,9 +268,9 @@ Milestone 1 tests startup, health behavior, pool cleanup, and opt-in database/sc
 - No authentication platform, multi-tenant accounts, refunds, reconciliation ledger, manual verification workflow, or production availability claim.
 - No arbitrary public delay configuration or public fault-injection controls in the proposed baseline; fixed profiles keep the experiment small and reproducible.
 - No transaction or database connection held across simulator waits; no blocking simulator waits; no retries that rerun an existing idempotency key.
-- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Milestone 5 adds the UI; benchmarks remain outside this milestone. No new dependencies or schema changes were needed.
+- Milestone 1 uses asyncpg directly and PostgreSQL 17, with Python dependencies pinned in requirements.txt. Milestone 5 adds the UI; Milestone 6 adds a standard-library benchmark runner. No new dependencies or schema changes were needed.
 
-## Current file tree and future components
+## Current file tree
 
 ```text
 asaanpay/
@@ -290,8 +290,14 @@ asaanpay/
 │       ├── styles.css          # navy/teal desktop and mobile layout
 │       ├── core.js             # client lifecycle and pure trace calculations
 │       └── app.js              # safe DOM rendering and user interactions
+├── scripts/benchmark.py       # paired endpoint benchmark and trace validation
+├── benchmarks/
+│   ├── README.md               # reproduction, definitions, retention
+│   ├── verification.md         # regression outcomes and experiment audit
+│   └── results/                # actual smoke/full CSV, JSONL, JSON, reports
 ├── db/schema.sql
 ├── tests/
+│   ├── test_benchmark.py       # statistics, ordering, trace/failure accounting
 │   ├── test_health.py          # mocked startup/health/recovery checks
 │   ├── test_checkouts.py       # validation and live PostgreSQL API/race checks
 │   ├── test_database.py        # opt-in PostgreSQL checks, rolled-back fixtures
@@ -310,7 +316,7 @@ asaanpay/
 └── .dockerignore
 ```
 
-The frontend is buildless and served by FastAPI. The benchmark runner remains a future addition; no benchmark framework or history dashboard is introduced in Milestone 5.
+The frontend is buildless and served by FastAPI. The Milestone 6 benchmark is a standalone script, with no history dashboard or load-testing infrastructure.
 
 ## Milestone 1 lifecycle and deployment
 
@@ -322,7 +328,7 @@ This follows [FastAPI lifespan guidance](https://fastapi.tiangolo.com/advanced/e
 
 ## Seven-day milestones
 
-Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration and Milestone 4 adds persistent checkout resources. Milestone 5 adds the checkout UI and measured timelines. Days 6–7 remain planning only.
+Days are relative project days. Milestone 1 covers infrastructure and Milestone 2 covers engines/coordinator. Milestone 3 adds orchestration and Milestone 4 adds persistent checkout resources. Milestone 5 adds the checkout UI and measured timelines. Day 6 is implemented and measured; day 7 remains planning only.
 
 | Day | Planned work | Reviewable completion evidence |
 | --- | --- | --- |
@@ -346,7 +352,7 @@ Days are relative project days. Milestone 1 covers infrastructure and Milestone 
 | Storage | asyncpg, one db/schema.sql, no ORM/Alembic. Simple constraints now; request immutability/state-transition guards in the storage adapter. Existing volumes require deliberate schema management. |
 | Amount representation | NUMERIC(14,2) preserves decimal PKR. Checkout validation rejects excess precision; canonical hashing uses a two-decimal string, avoiding binary-float identity differences. |
 
-Benchmark size remains a planning default of 10 warm-ups and 100 measured attempts per mode/profile; raw JSONL or CSV format can be selected with the runner. All three profiles are implemented; the benchmark runner remains deferred. These details do not expand Milestone 5.
+Milestone 6 uses 5 warm-ups and 50 measured attempts per mode/profile by default, with both CSV and JSONL raw evidence. CLI arguments override counts. All three profiles are measured without altering their delays or trace semantics.
 
 ## Milestone 2 callable contracts
 
@@ -435,4 +441,4 @@ All views explicitly identify configured waits as artificial external I/O. Total
 
 ### Milestone 5 verification
 
-The original 47 backend tests remain intact. Three additional Python tests cover the page/assets, API route coexistence, and missing/traversal paths. Optional dependency-free browser tests use an existing Chrome/Chromium, a temporary isolated browser profile, and a short-lived localhost server proxying the existing sandbox API. Pure client tests cover state/status mapping, retries, key identity, polling bounds, comparison inputs, and layout math against captured real traces for all six profile/mode pairs. Browser smoke covers actual checkout/comparison requests, desktop/mobile layout, verification/decline rendering, safe uncertain retries, and fixture-driven technical ERROR/missing-trace/text-safety rendering. It creates synthetic attempts but does not delete existing data or run startup recovery. See README for commands and a manual demo. Milestone 6 is not implemented.
+The original 47 backend tests remain intact. Three additional Python tests cover the page/assets, API route coexistence, and missing/traversal paths. Optional dependency-free browser tests use an existing Chrome/Chromium, a temporary isolated browser profile, and a short-lived localhost server proxying the existing sandbox API. Pure client tests cover state/status mapping, retries, key identity, polling bounds, comparison inputs, and layout math against captured real traces for all six profile/mode pairs. Browser smoke covers actual checkout/comparison requests, desktop/mobile layout, verification/decline rendering, safe uncertain retries, and fixture-driven technical ERROR/missing-trace/text-safety rendering. It creates synthetic attempts but does not delete existing data or run startup recovery. See README for commands and a manual demo. Milestone 6 adds eleven benchmark validation/accounting tests and waits for the iframe to finish loading in the browser harness; application/UI code remains unchanged. See the benchmark guide for actual results and regression outcomes.

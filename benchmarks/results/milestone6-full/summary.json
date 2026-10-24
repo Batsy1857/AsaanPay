@@ -1,0 +1,552 @@
+{
+  "status": "PASS",
+  "complete": true,
+  "measured_attempts": 300,
+  "warmup_attempts": 30,
+  "measured_errors": 0,
+  "warmup_errors": 0,
+  "correct_measured_decisions": 300,
+  "matching_measured_pairs": 150,
+  "expected_measured_pairs": 150,
+  "unique_keys": 330,
+  "unique_attempt_ids": 330,
+  "groups": [
+    {
+      "profile": "lightweight",
+      "mode": "sequential",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 7.07966752,
+          "median": 6.092229,
+          "p95": 13.038916,
+          "min": 2.9325,
+          "max": 23.432667,
+          "stdev": 3.649921187573039
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 0.0706325,
+          "median": 0.0526875,
+          "p95": 0.140291,
+          "min": 0.023,
+          "max": 0.501209,
+          "stdev": 0.07210787549482754
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 0.02428084,
+          "median": 0.01575,
+          "p95": 0.055458,
+          "min": 0.006666,
+          "max": 0.20025,
+          "stdev": 0.03246697102290956
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 0.03373252,
+          "median": 0.0248125,
+          "p95": 0.066792,
+          "min": 0.011,
+          "max": 0.263709,
+          "stdev": 0.036083170521268484
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 7.07966752,
+        "median": 6.092229,
+        "p95": 13.038916,
+        "min": 2.9325,
+        "max": 23.432667,
+        "stdev": 3.649921187573039
+      }
+    },
+    {
+      "profile": "lightweight",
+      "mode": "concurrent",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 7.41051408,
+          "median": 6.52825,
+          "p95": 15.500542,
+          "min": 2.99925,
+          "max": 27.296416,
+          "stdev": 4.00603373329777
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 0.10305508,
+          "median": 0.0869585,
+          "p95": 0.221084,
+          "min": 0.035916,
+          "max": 0.258625,
+          "stdev": 0.05089306417314883
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 0.0219883,
+          "median": 0.017896,
+          "p95": 0.046667,
+          "min": 0.0085,
+          "max": 0.065625,
+          "stdev": 0.012254716844912394
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 0.03747998,
+          "median": 0.0281875,
+          "p95": 0.077792,
+          "min": 0.013875,
+          "max": 0.119667,
+          "stdev": 0.020881177671740057
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 0.0119058,
+          "median": 0.00925,
+          "p95": 0.024458,
+          "min": 0.004667,
+          "max": 0.049167,
+          "stdev": 0.007942756695151083
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 7.41051408,
+        "median": 6.52825,
+        "p95": 15.500542,
+        "min": 2.99925,
+        "max": 27.296416,
+        "stdev": 4.00603373329777
+      }
+    },
+    {
+      "profile": "balanced",
+      "mode": "sequential",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 519.2422617,
+          "median": 517.9672499999999,
+          "p95": 531.400583,
+          "min": 507.880209,
+          "max": 571.590292,
+          "stdev": 10.431667629831818
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 506.0725969,
+          "median": 506.5257085,
+          "p95": 510.263167,
+          "min": 501.076667,
+          "max": 513.092375,
+          "stdev": 2.862446011192447
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 252.66506836,
+          "median": 251.999479,
+          "p95": 255.984167,
+          "min": 250.29125,
+          "max": 256.390084,
+          "stdev": 1.8779757230310599
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 253.34282932,
+          "median": 253.08195899999998,
+          "p95": 257.071584,
+          "min": 250.491875,
+          "max": 257.291,
+          "stdev": 2.1415649151812413
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 519.2422617,
+        "median": 517.9672499999999,
+        "p95": 531.400583,
+        "min": 507.880209,
+        "max": 571.590292,
+        "stdev": 10.431667629831818
+      }
+    },
+    {
+      "profile": "balanced",
+      "mode": "concurrent",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 268.84731668,
+          "median": 263.95214599999997,
+          "p95": 281.030084,
+          "min": 254.820875,
+          "max": 489.182417,
+          "stdev": 32.30502994235273
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 253.2931184,
+          "median": 252.4709995,
+          "p95": 257.834417,
+          "min": 250.311875,
+          "max": 259.726292,
+          "stdev": 2.4051431252108078
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 252.97392182000002,
+          "median": 252.08447999999999,
+          "p95": 257.141084,
+          "min": 250.180125,
+          "max": 259.484917,
+          "stdev": 2.2973930970424252
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 253.12201098,
+          "median": 252.262604,
+          "p95": 257.537209,
+          "min": 250.260751,
+          "max": 259.571375,
+          "stdev": 2.350724740263608
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 252.95914358,
+          "median": 252.06520899999998,
+          "p95": 257.133334,
+          "min": 250.172417,
+          "max": 259.464834,
+          "stdev": 2.296467605246273
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 268.84731668,
+        "median": 263.95214599999997,
+        "p95": 281.030084,
+        "min": 254.820875,
+        "max": 489.182417,
+        "stdev": 32.30502994235273
+      }
+    },
+    {
+      "profile": "asymmetric",
+      "mode": "sequential",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 518.82002168,
+          "median": 516.8135205000001,
+          "p95": 537.467792,
+          "min": 505.8415,
+          "max": 552.095875,
+          "stdev": 9.117960855412157
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 505.3997418,
+          "median": 504.439459,
+          "p95": 512.433167,
+          "min": 500.907458,
+          "max": 512.798125,
+          "stdev": 3.259603889827565
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 102.519605,
+          "median": 101.55793750000001,
+          "p95": 106.197667,
+          "min": 100.422041,
+          "max": 106.862792,
+          "stdev": 2.0751090342947256
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 402.799236,
+          "median": 401.82945800000005,
+          "p95": 406.626334,
+          "min": 400.336792,
+          "max": 411.706958,
+          "stdev": 2.371596131945877
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "stdev": 0.0
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 518.82002168,
+        "median": 516.8135205000001,
+        "p95": 537.467792,
+        "min": 505.8415,
+        "max": 552.095875,
+        "stdev": 9.117960855412157
+      }
+    },
+    {
+      "profile": "asymmetric",
+      "mode": "concurrent",
+      "attempted": 50,
+      "valid": 50,
+      "error_count": 0,
+      "error_rate": 0.0,
+      "decision_correct_count": 50,
+      "decision_correct_rate": 1.0,
+      "matching_pairs": 50,
+      "decisions": {
+        "SUCCEEDED": 5,
+        "DECLINED": 25,
+        "VERIFICATION_REQUIRED": 20
+      },
+      "cases": {
+        "below_approved": 5,
+        "below_declined": 5,
+        "threshold_approved": 5,
+        "threshold_declined": 5,
+        "above_approved": 5,
+        "above_declined": 5,
+        "foreign_approved": 5,
+        "foreign_declined": 5,
+        "both_approved": 5,
+        "both_declined": 5
+      },
+      "first_in_pair": 25,
+      "metrics": {
+        "http_ms": {
+          "n": 50,
+          "mean": 415.69396258,
+          "median": 413.47156299999995,
+          "p95": 433.948625,
+          "min": 407.011625,
+          "max": 442.558125,
+          "stdev": 8.186072599923095
+        },
+        "orchestration_ms": {
+          "n": 50,
+          "mean": 403.1194377,
+          "median": 401.915292,
+          "p95": 407.222917,
+          "min": 400.338459,
+          "max": 424.498042,
+          "stdev": 3.6729189445296484
+        },
+        "issuer_ms": {
+          "n": 50,
+          "mean": 102.81679588,
+          "median": 102.1362295,
+          "p95": 106.637917,
+          "min": 100.319875,
+          "max": 115.056875,
+          "stdev": 2.615553923570884
+        },
+        "risk_ms": {
+          "n": 50,
+          "mean": 402.90586774,
+          "median": 401.842375,
+          "p95": 406.769791,
+          "min": 400.189833,
+          "max": 424.316626,
+          "stdev": 3.620688512930796
+        },
+        "overlap_ms": {
+          "n": 50,
+          "mean": 102.8021076,
+          "median": 102.127229,
+          "p95": 106.625875,
+          "min": 100.313834,
+          "max": 115.046125,
+          "stdev": 2.6162062732063394
+        }
+      },
+      "all_attempt_http_ms": {
+        "n": 50,
+        "mean": 415.69396258,
+        "median": 413.47156299999995,
+        "p95": 433.948625,
+        "min": 407.011625,
+        "max": 442.558125,
+        "stdev": 8.186072599923095
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "profile": "lightweight",
+      "median_reduction_percent": {
+        "http_ms": null,
+        "orchestration_ms": null
+      },
+      "interpretation": "Lightweight differences are overhead/noise; no speed improvement claimed."
+    },
+    {
+      "profile": "balanced",
+      "median_reduction_percent": {
+        "http_ms": 49.04076541518793,
+        "orchestration_ms": 50.15633061396725
+      },
+      "interpretation": "Descriptive reduction only; synthetic waits, no significance test."
+    },
+    {
+      "profile": "asymmetric",
+      "median_reduction_percent": {
+        "http_ms": 19.995985670038237,
+        "orchestration_ms": 20.32437494149322
+      },
+      "interpretation": "Descriptive reduction only; synthetic waits, no significance test."
+    }
+  ],
+  "failures": []
+}

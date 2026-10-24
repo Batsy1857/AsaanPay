@@ -2,7 +2,7 @@
 
 An educational synthetic payment-orchestration simulator for a DevOps architecture assignment. Stack: one FastAPI application, PostgreSQL, HTML/CSS/vanilla JS, and Docker Compose. No real financial transactions or payment-provider integrations occur.
 
-Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Milestone 4 integrates persistent POST/GET checkout resources and idempotency. Milestone 5 adds a responsive checkout UI, retry-safe API integration, measured timelines, and an explicit two-mode comparison. The benchmark suite remains **not implemented**. See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, future file tree, and seven-day milestones.
+Milestone 1 implements application startup, an asyncpg connection pool, `GET /api/health`, the initial one-table schema, containers, and verification tests. Milestone 2 adds deterministic issuer/risk engines and a pure decision coordinator. Milestone 3 adds sequential/concurrent orchestration with artificial waits and measured traces. Milestone 4 integrates persistent POST/GET checkout resources and idempotency. Milestone 5 adds a responsive checkout UI, retry-safe API integration, measured timelines, and an explicit two-mode comparison. Milestone 6 adds controlled HTTP benchmarking and reliability verification; see the [benchmark guide](benchmarks/README.md) and [actual results](benchmarks/results/milestone6-full/report.md). See [architecture](docs/architecture.md) for contracts, decision matrix, state machine, benchmark methodology, tradeoffs, file tree, and seven-day milestones.
 
 ## Start locally with Docker Compose
 
@@ -58,7 +58,7 @@ The browser runner uses a temporary profile and localhost-only test server, then
 
 For a manual retry check, open browser developer tools, set Network to **Offline**, submit a valid checkout, and confirm **Retry same attempt** appears with inputs locked. Restore the network and retry; inspect POST headers/body to verify that the same key and inputs are sent. Reload while offline after an uncertain submission to check restoration. A server response can already have committed even when the browser fails to receive it, which is why retries must keep their key.
 
-## Verify Milestones 1–5
+## Verify Milestones 1–6
 
 ```sh
 docker compose exec api python -m unittest discover -s tests -v
@@ -87,6 +87,19 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m unittest discover -s tests -v
 ```
+
+## Controlled benchmark (Milestone 6)
+
+Use the already running local application and finish regression tests first:
+
+```sh
+python3 scripts/benchmark.py --url http://localhost:18000 --trials 2 --warmups 1
+python3 scripts/benchmark.py --url http://localhost:18000 --trials 50 --warmups 5
+```
+
+Each invocation creates a new directory under `benchmarks/results/` with raw CSV/JSONL, summary JSON, metadata, and a Markdown report. One request is outstanding at a time, with fresh `asaanpay-bench-...` keys and balanced mode ordering. Warm-ups are excluded from latency statistics; failures are retained and cause a nonzero exit status. HTTP and orchestration timings are reported separately. All waits are artificial, and tiny lightweight differences are not treated as speed improvements.
+
+See the [benchmark guide](benchmarks/README.md) for clean-start reproduction, definitions, controls, limitations, and safe removal of only exact benchmark-created keys; [verification](benchmarks/verification.md) for test outcomes; and [the full report](benchmarks/results/milestone6-full/report.md) for actual measurements. No database cleanup runs automatically.
 
 ## Shutdown and reset
 
@@ -120,9 +133,9 @@ For existing data that must be retained, review and apply an explicit SQL change
 | DECLINED | Either valid result | DECLINED |
 | Technical failure/timeout | Any | ERROR |
 
-Both sequential and concurrent modes must produce identical decisions. Per-branch timeout is two seconds. Workload profiles use explicitly **artificial waits**: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. Benchmarks will measure orchestration/API latency, actual branch overlap, correctness, median, and P95 using paired deterministic inputs and fresh keys.
+Both sequential and concurrent modes must produce identical decisions. Per-branch timeout is two seconds. Workload profiles use explicitly **artificial waits**: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. The benchmark measures orchestration/API latency, actual branch overlap, correctness, and distribution statistics using paired deterministic inputs and fresh keys. Defaults are 5 warm-ups plus 50 measured attempts per mode/profile (300 measured overall).
 
-Before serving requests, startup recovery marks all CREATED/PROCESSING attempts ERROR with PROCESS_INTERRUPTED after database connectivity is established. It never reruns operations or overwrites terminal results. **This simple policy is unsafe for multiple independent API instances.** Use exactly one API process/instance, with no overlapping deployments. Milestone 5 is complete; Milestone 6 has not begun.
+Before serving requests, startup recovery marks all CREATED/PROCESSING attempts ERROR with PROCESS_INTERRUPTED after database connectivity is established. It never reruns operations or overwrites terminal results. **This simple policy is unsafe for multiple independent API instances.** Use exactly one API process/instance, with no overlapping deployments. Milestone 6 is complete; [results and verification](benchmarks/README.md) preserve actual data, failures, environment metadata, and reproduction steps. Presentation work remains deferred.
 
 ## Milestone 2 interfaces
 
@@ -154,7 +167,7 @@ print(json.dumps(result.timing_trace, indent=2))
 PYTHON
 ```
 
-All three profiles are implemented: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. These are **artificial simulated service waits**, not actual issuer-network or fraud-computation measurements. `asyncio` lets waiting branches overlap on one event loop; it does not inherently parallelize CPU work. Milestone 3 added no persistence; Milestone 4 now persists its unchanged results and traces. The benchmark framework remains deferred.
+All three profiles are implemented: lightweight 0/0 ms, balanced 250/250 ms, asymmetric 100/400 ms. These are **artificial simulated service waits**, not actual issuer-network or fraud-computation measurements. `asyncio` lets waiting branches overlap on one event loop; it does not inherently parallelize CPU work. Milestone 3 added no persistence; Milestone 4 now persists its unchanged results and traces. Milestone 6 measures the persisted endpoint with the standard-library runner in `scripts/benchmark.py`.
 
 ### Submit, retrieve, and replay
 

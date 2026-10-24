@@ -1,0 +1,251 @@
+{
+  "started_utc": "2026-10-24T10:57:18.268559+00:00",
+  "run_id": "20261024T105718Z-12ec0a1075ff478ba651517b27328750",
+  "idempotency_key_prefix": "asaanpay-bench-20261024T105718Z-12ec0a1075ff478ba651517b27328750-",
+  "url": "http://localhost:18000",
+  "trials_per_mode_profile": 2,
+  "warmups_per_mode_profile": 1,
+  "planned_measured_attempts": 12,
+  "planned_warmup_attempts": 6,
+  "http_socket_timeout_seconds": 10,
+  "branch_timeout_ms": 2000,
+  "profiles_artificial_delays_ms": {
+    "lightweight": [
+      0,
+      0
+    ],
+    "balanced": [
+      250,
+      250
+    ],
+    "asymmetric": [
+      100,
+      400
+    ]
+  },
+  "corpus": [
+    {
+      "case_id": "below_approved",
+      "input": {
+        "amount_pkr": "49999.99",
+        "billing_country": "PK",
+        "card_preset": "approved"
+      },
+      "issuer": "APPROVED",
+      "risk": "CLEAR",
+      "decision": "SUCCEEDED"
+    },
+    {
+      "case_id": "below_declined",
+      "input": {
+        "amount_pkr": "49999.99",
+        "billing_country": "PK",
+        "card_preset": "declined"
+      },
+      "issuer": "DECLINED",
+      "risk": "CLEAR",
+      "decision": "DECLINED"
+    },
+    {
+      "case_id": "threshold_approved",
+      "input": {
+        "amount_pkr": "50000.00",
+        "billing_country": "PK",
+        "card_preset": "approved"
+      },
+      "issuer": "APPROVED",
+      "risk": "VERIFY",
+      "decision": "VERIFICATION_REQUIRED"
+    },
+    {
+      "case_id": "threshold_declined",
+      "input": {
+        "amount_pkr": "50000.00",
+        "billing_country": "PK",
+        "card_preset": "declined"
+      },
+      "issuer": "DECLINED",
+      "risk": "VERIFY",
+      "decision": "DECLINED"
+    },
+    {
+      "case_id": "above_approved",
+      "input": {
+        "amount_pkr": "50000.01",
+        "billing_country": "PK",
+        "card_preset": "approved"
+      },
+      "issuer": "APPROVED",
+      "risk": "VERIFY",
+      "decision": "VERIFICATION_REQUIRED"
+    },
+    {
+      "case_id": "above_declined",
+      "input": {
+        "amount_pkr": "50000.01",
+        "billing_country": "PK",
+        "card_preset": "declined"
+      },
+      "issuer": "DECLINED",
+      "risk": "VERIFY",
+      "decision": "DECLINED"
+    },
+    {
+      "case_id": "foreign_approved",
+      "input": {
+        "amount_pkr": "7500.00",
+        "billing_country": "US",
+        "card_preset": "approved"
+      },
+      "issuer": "APPROVED",
+      "risk": "VERIFY",
+      "decision": "VERIFICATION_REQUIRED"
+    },
+    {
+      "case_id": "foreign_declined",
+      "input": {
+        "amount_pkr": "7500.00",
+        "billing_country": "US",
+        "card_preset": "declined"
+      },
+      "issuer": "DECLINED",
+      "risk": "VERIFY",
+      "decision": "DECLINED"
+    },
+    {
+      "case_id": "both_approved",
+      "input": {
+        "amount_pkr": "50000.00",
+        "billing_country": "US",
+        "card_preset": "approved"
+      },
+      "issuer": "APPROVED",
+      "risk": "VERIFY",
+      "decision": "VERIFICATION_REQUIRED"
+    },
+    {
+      "case_id": "both_declined",
+      "input": {
+        "amount_pkr": "50000.00",
+        "billing_country": "US",
+        "card_preset": "declined"
+      },
+      "issuer": "DECLINED",
+      "risk": "VERIFY",
+      "decision": "DECLINED"
+    }
+  ],
+  "python": "3.13.2 (v3.13.2:4f8bb3947cf, Feb  4 2025, 11:51:10) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.6-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "processor": "arm",
+  "logical_cpu_count": 8,
+  "perf_counter": {
+    "implementation": "mach_absolute_time()",
+    "monotonic": true,
+    "adjustable": false,
+    "resolution": 4.166666666666666e-08
+  },
+  "git_revision": "4517c42add8717aee9de9554b31aeed48d762bda",
+  "git_status": "M tests/frontend_tests.js\n?? scripts/\n?? tests/test_benchmark.py",
+  "source_sha256": {
+    "app/__init__.py": "77159cc35ff868bd4d5123695444a79048bac148545594f2be291b11555ada78",
+    "app/checkouts.py": "b68470aad6d0d8ac02d91731490f268e2ef26304a799863c72049f7d40b62ce0",
+    "app/contracts.py": "9d400aaca3e586cad9455da67fb325876967450fd9485127fe921b43eb5ce40e",
+    "app/coordinator.py": "e21e7f49c9141830d8e564e51e106a94288627dfca66ac35fa3f37d69892f7d6",
+    "app/main.py": "2b1abc9df9f74f78afbd9b68c1d32c6403a891bd7e1026cd17570f090cb8360b",
+    "app/orchestration.py": "ff4ebb6a08be538ed9abacfa73fd06be6220a209b6ef96e4cf73cfbb99fcf437",
+    "app/simulators.py": "1d7685757e09c86b3b3488868774503f431ad9ac0cc33e218d482072b6a829ab",
+    "app/storage.py": "de30fe129611f502dcabc57f1bef03a1975bfddb12b795b26bd252e92c48862e",
+    "scripts/benchmark.py": "664cf7abce77edb2dc9d68daf1c9e00ad019c6d373a29e65772dfaa83c64bb59",
+    "requirements.txt": "edb1de6682203278011d4383a0750262ffa7ab6671bf0ad3ad0e0beed7089ee0",
+    "compose.yaml": "e9db93cb05851698738cda835db7f06ab7c1bf3652f832d5ef516a7e31978971",
+    "db/schema.sql": "3c3441674069ae46ea5b58d184971aa5ff2f5cc380faf0dcd68d277186c305da"
+  },
+  "server_environment": {
+    "captured_utc": "2026-10-24T10:57:10.686266+00:00",
+    "server_python": "Python 3.13.17",
+    "server_platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.41",
+    "postgres": "postgres (PostgreSQL) 17.11",
+    "host_memory_bytes": 8589934592,
+    "host_model": "Mac14,7",
+    "docker": {
+      "cpus": 8,
+      "memory_bytes": 6210043904,
+      "version": "29.9.1",
+      "architecture": "aarch64"
+    },
+    "containers": [
+      {
+        "name": "/asaanpay-api-1",
+        "image": "sha256:1b40dca9bafc75fcae675179fb11521b552dfb514a1ddd04a21ea0292ff6bc19",
+        "command": [
+          "uvicorn",
+          "app.main:app",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "--workers",
+          "1"
+        ],
+        "limits": {
+          "Memory": 0,
+          "NanoCpus": 0,
+          "CpuQuota": 0,
+          "CpuPeriod": 0
+        }
+      },
+      {
+        "name": "/asaanpay-db-1",
+        "image": "sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb",
+        "command": [
+          "postgres"
+        ],
+        "limits": {
+          "Memory": 0,
+          "NanoCpus": 0,
+          "CpuQuota": 0,
+          "CpuPeriod": 0
+        }
+      }
+    ],
+    "running_backend_source_sha256": {
+      "app/storage.py": "de30fe129611f502dcabc57f1bef03a1975bfddb12b795b26bd252e92c48862e",
+      "app/contracts.py": "9d400aaca3e586cad9455da67fb325876967450fd9485127fe921b43eb5ce40e",
+      "app/__init__.py": "77159cc35ff868bd4d5123695444a79048bac148545594f2be291b11555ada78",
+      "app/checkouts.py": "b68470aad6d0d8ac02d91731490f268e2ef26304a799863c72049f7d40b62ce0",
+      "app/main.py": "2b1abc9df9f74f78afbd9b68c1d32c6403a891bd7e1026cd17570f090cb8360b",
+      "app/coordinator.py": "e21e7f49c9141830d8e564e51e106a94288627dfca66ac35fa3f37d69892f7d6",
+      "app/simulators.py": "1d7685757e09c86b3b3488868774503f431ad9ac0cc33e218d482072b6a829ab",
+      "app/orchestration.py": "ff4ebb6a08be538ed9abacfa73fd06be6220a209b6ef96e4cf73cfbb99fcf437"
+    },
+    "running_backend_matches_workspace": true,
+    "experiment_conditions": "One API instance with one Uvicorn worker; one synchronous benchmark client. Regression runs finish before benchmark. No deliberate concurrent user load; host not isolated. No container CPU/memory limits configured (0); Docker VM has its own capacity."
+  },
+  "connection_policy": "Fresh connection per request; Connection: close; proxies disabled; no redirects/retries",
+  "ordering": "Rotate profiles each round; mode parity = (round + round//10 + profile_index)%2",
+  "numeric_tolerance_ms": 1e-06,
+  "percentile": "nearest rank: sorted[ceil(0.95*n)-1]",
+  "stdev": "sample, n-1; unavailable for n<2",
+  "abort_reason": null,
+  "command": [
+    "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+    "scripts/benchmark.py",
+    "--url",
+    "http://localhost:18000",
+    "--trials",
+    "2",
+    "--warmups",
+    "1",
+    "--output",
+    "benchmarks/results/milestone6-smoke",
+    "--environment-json",
+    "/tmp/asaanpay-benchmark-env.json"
+  ],
+  "health": {
+    "status": "ok",
+    "database": "connected"
+  },
+  "finished_utc": "2026-10-24T10:57:24.038980+00:00"
+}
