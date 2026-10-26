@@ -13,6 +13,10 @@
     SUCCEEDED: "Payment Approved", DECLINED: "Payment Declined",
     VERIFICATION_REQUIRED: "Sandbox Verification Required", ERROR: "Payment Processing Error"
   };
+  const executionStates = {
+    SUCCEEDED: "Succeeded", DECLINED: "Declined",
+    VERIFICATION_REQUIRED: "Verification required", ERROR: "Error"
+  };
 
   function storageWarning() {
     $("storage-notice").hidden = false;
@@ -76,10 +80,13 @@
     if (client.busy || client.pending) $("empty-state").hidden = true;
   }
 
+  // Round only headline display strings; trace geometry and calculations use raw values.
+  function headlineMilliseconds(value) { return value.toFixed(2) + " ms"; }
+
   function metric(label, value) {
     const item = node("div", "metric");
     item.append(node("span", "", label));
-    const amount = node("strong", "", Core.milliseconds(value));
+    const amount = node("strong", "", headlineMilliseconds(value));
     amount.title = String(value) + " ms";
     item.append(amount);
     return item;
@@ -220,7 +227,7 @@
     card.dataset.mode = mode;
     const heading = node("header", "execution-heading");
     heading.append(node("p", "attempt-label", label), node("h3", "mode-title", mode === "sequential" ? "Sequential" : mode === "concurrent" ? "Concurrent" : "Execution"));
-    heading.append(node("p", "execution-state", attempt.state));
+    heading.append(node("p", "execution-state", executionStates[attempt.state] || attempt.state));
     const explanation = mode === "sequential"
       ? "Sequential mode awaits issuer authorization, then risk screening. The coordinator combines both results."
       : mode === "concurrent"
@@ -271,17 +278,37 @@
     const summary = $("comparison-summary");
     summary.hidden = !base;
     summary.replaceChildren();
+    const change = $("comparison-change");
+    change.hidden = true;
+    change.replaceChildren();
+    delete change.dataset.direction;
     if (base) {
-      summary.append(node("h4", "", "Observed difference"));
+      summary.append(node("h4", "", "Interpretation & limitations"));
       const stats = Core.comparison(base, attempt);
-      if (stats) {
-        summary.append(node("p", "", `Sequential ${Core.milliseconds(stats.sequential)} · Concurrent ${Core.milliseconds(stats.concurrent)}`));
+      const recordedOutcomes = [base, attempt].every(entry => entry.state !== "ERROR"
+        && Object.hasOwn(Core.states, entry.state) && ["APPROVED", "DECLINED"].includes(entry.issuer_result)
+        && ["CLEAR", "VERIFY"].includes(entry.risk_result));
+      if (recordedOutcomes && stats && Number.isFinite(stats.reduction)) {
         const reduction = stats.reduction;
-        summary.append(node("p", "", reduction === null ? "Percentage unavailable: the sequential duration is zero."
-          : `${Math.abs(reduction).toFixed(1)}% ${reduction >= 0 ? "lower" : "higher"} orchestration latency in concurrent mode, relative to sequential.`));
-        summary.append(node("p", "", "Both attempts produced the same business outcome."));
+        change.dataset.direction = reduction > 0 ? "lower" : reduction < 0 ? "higher" : "equal";
+        const rounded = Math.abs(reduction).toFixed(1);
+        // Keep small nonzero changes distinct from an actually equal pair.
+        change.append(node("strong", "", reduction !== 0 && rounded === "0.0" ? "<0.1%" : rounded + "%"));
+        change.append(node("span", "", reduction === 0 ? "No orchestration time difference in this pair"
+          : `${reduction > 0 ? "Lower" : "Higher"} orchestration time in this pair`));
+        change.hidden = false;
       } else {
-        summary.append(node("p", "", "Latency comparison unavailable: both attempts need matching business outcomes and complete valid traces."));
+        summary.append(node("p", "", recordedOutcomes && stats && stats.reduction === null
+          ? "Percentage unavailable: the sequential duration is zero."
+          : "Timing comparison unavailable: both attempts need matching inputs and business outcomes, plus complete valid traces."));
+      }
+      if (recordedOutcomes) {
+        const matching = base.state === attempt.state && base.issuer_result === attempt.issuer_result
+          && base.risk_result === attempt.risk_result;
+        summary.append(node("p", "", matching ? "Both attempts produced the same business outcome."
+          : "The attempts produced different business outcomes."));
+      } else {
+        summary.append(node("p", "", "Matching business outcomes could not be confirmed from both recorded results."));
       }
       summary.append(node("p", "", "Illustrative only. Two observations are not a formal benchmark."));
     }

@@ -199,8 +199,15 @@
     await new Promise(resolve => setTimeout(resolve, 0));
   }
   const uiRequests = [];
+  const uiResponses = [];
   const originalFetch = win.fetch.bind(win);
-  win.fetch = async (url, options) => { if (options && options.method === "POST") uiRequests.push(clone({ url, headers: options.headers, body: options.body })); return originalFetch(url, options); };
+  win.fetch = async (url, options) => {
+    const posting = options && options.method === "POST";
+    if (posting) uiRequests.push(clone({ url, headers: options.headers, body: options.body }));
+    const reply = await originalFetch(url, options);
+    if (posting) uiResponses.push(await reply.clone().json());
+    return reply;
+  };
   function beginCheckout() {
     if (!doc.getElementById("checkout-result").hidden) doc.getElementById("another-payment").click();
     form.requestSubmit();
@@ -258,6 +265,7 @@
   });
   await test("desktop UI renders balanced checkout and measured bars", async () => {
     await submit({ execution_mode: "sequential" });
+    equal(JSON.parse(uiRequests[0].body), { ...payload, execution_mode: "sequential" });
     equal(doc.querySelector(".attempt-card").dataset.state, "SUCCEEDED");
     assert(doc.querySelectorAll(".timeline-bar").length === 2);
     assert(doc.documentElement.scrollWidth <= win.innerWidth);
@@ -316,6 +324,19 @@
     const details = [...doc.querySelectorAll(".trace-details")].map(element => element.textContent);
     assert(details[0].endsWith("overlap 0 ms"));
     assert(Number(/overlap ([\d.]+) ms$/.exec(details[1])[1]) > 0, "Real concurrent overlap must be positive");
+    const stats = C.comparison(...uiResponses);
+    const summary = doc.getElementById("comparison-summary");
+    const change = doc.getElementById("comparison-change");
+    assert(!change.hidden && doc.querySelector(".execution-output-header").contains(change));
+    equal(change.querySelector("strong").textContent, Math.abs(stats.reduction).toFixed(1) + "%");
+    equal(change.querySelector("span").textContent, `${stats.reduction >= 0 ? "Lower" : "Higher"} orchestration time in this pair`);
+    equal(summary.querySelector("h4").textContent, "Interpretation & limitations");
+    assert(!summary.textContent.includes("%") && !summary.textContent.includes(" ms"));
+    for (const result of uiResponses) {
+      const stored = await (await originalFetch("/api/checkouts/" + result.id)).json();
+      equal(stored.request, result.request);
+      equal(stored.timing_trace, result.timing_trace);
+    }
   });
   await test("desktop comparisons align equal cards and share one measured time scale", () => {
     equal(doc.querySelectorAll("#execution-output").length, 1);
@@ -323,6 +344,14 @@
     assert(doc.getElementById("execution-output").contains(doc.getElementById("comparison-summary")));
     equal(doc.querySelectorAll(".execution-card.card").length, 0);
     const cards = [...doc.querySelectorAll(".execution-card")];
+    equal(win.getComputedStyle(doc.getElementById("execution-output-heading")).fontSize, "19px");
+    for (const metric of doc.querySelectorAll(".metric strong")) {
+      equal(win.getComputedStyle(metric).fontSize, "28px");
+      assert(win.getComputedStyle(metric).fontVariantNumeric.includes("tabular-nums"));
+    }
+    assert(win.getComputedStyle(doc.querySelector(".comparison-summary p")).fontVariantNumeric.includes("tabular-nums"));
+    equal(win.getComputedStyle(doc.querySelector("#comparison-change strong")).fontSize, "30px");
+    assert(win.getComputedStyle(doc.querySelector("#comparison-change strong")).fontVariantNumeric.includes("tabular-nums"));
     equal(cards.map(card => card.dataset.mode), ["sequential", "concurrent"]);
     const [a, b] = cards.map(card => card.getBoundingClientRect());
     assert(Math.abs(a.width - b.width) < 1 && Math.abs(a.right - b.left) < 1 && a.top === b.top);
@@ -350,19 +379,36 @@
   await test("toggling preserves completed comparison nodes, scales and selected inputs", () => {
     const cards = [...doc.querySelectorAll(".execution-card")];
     const summary = doc.getElementById("comparison-summary").textContent;
+    const change = doc.getElementById("comparison-change").textContent;
     const inputs = Object.fromEntries(new win.FormData(form));
     setExplorer(false);
     assert(panel.hidden);
     setExplorer(true);
     assert(cards.every((card, index) => doc.querySelectorAll(".execution-card")[index] === card));
     equal(doc.getElementById("comparison-summary").textContent, summary);
+    equal(doc.getElementById("comparison-change").textContent, change);
     equal(Object.fromEntries(new win.FormData(form)), inputs);
     equal(uiRequests.length, 2);
   });
-  await test("comparison stays aligned at 1440/1024/768 and stacks at 390/320 without clipped labels", async () => {
+  await test("comparison preserves geometry at desktop, zoom-equivalent widths, tablet and mobile", async () => {
     const scales = [...doc.querySelectorAll(".timeline")].map(chart => chart.dataset.axisMaxMs);
-    for (const width of [1440, 1024, 768, 390, 320]) {
+    const geometry = [...doc.querySelectorAll(".timeline-bar")].map(bar => [bar.style.left, bar.style.width, { ...bar.dataset }]);
+    // Browser zoom shrinks the CSS viewport: cover 1440px desktop at 110% / 125%.
+    for (const width of [1440, Math.floor(1440 / 1.1), 1440 / 1.25, 1024, 850, 768, 681, 680, 390, 320]) {
       await resizeFrame(width);
+      const heading = doc.getElementById("execution-output-heading").getBoundingClientRect();
+      const change = doc.getElementById("comparison-change").getBoundingClientRect();
+      const header = doc.querySelector(".execution-output-header").getBoundingClientRect();
+      assert(change.left >= header.left && change.right <= header.right);
+      assert(change.bottom <= header.bottom && heading.bottom <= header.bottom);
+      if (width <= 390) {
+        assert(change.top >= heading.bottom, "Header must stack on mobile");
+        equal(change.left, heading.left);
+      } else if (width >= 768) {
+        assert(change.left > heading.right, "Desktop percentage must sit to the right");
+        assert(heading.top < change.bottom && heading.bottom > change.top);
+      }
+      assert(doc.getElementById("comparison-change").scrollWidth <= doc.getElementById("comparison-change").clientWidth);
       const cards = [...doc.querySelectorAll(".execution-card")].map(card => card.getBoundingClientRect());
       if (width <= 680) assert(cards[1].top >= cards[0].bottom && cards[0].left === cards[1].left);
       else {
@@ -375,7 +421,13 @@
         }
       }
       equal([...doc.querySelectorAll(".timeline")].map(chart => chart.dataset.axisMaxMs), scales);
+      equal([...doc.querySelectorAll(".timeline-bar")].map(bar => [bar.style.left, bar.style.width, { ...bar.dataset }]), geometry);
       assert(doc.documentElement.scrollWidth <= win.innerWidth);
+      for (const metric of doc.querySelectorAll(".metric")) {
+        const bounds = metric.getBoundingClientRect();
+        const value = metric.querySelector("strong").getBoundingClientRect();
+        assert(value.left >= bounds.left - 1 && value.right <= bounds.right + 1, "Primary timing clipped at " + width);
+      }
       for (const axis of doc.querySelectorAll(".axis")) {
         const bounds = axis.getBoundingClientRect();
         for (const tick of axis.querySelectorAll("span")) {
@@ -387,6 +439,15 @@
       for (const track of doc.querySelectorAll(".timeline-track")) {
         const bounds = track.getBoundingClientRect(), label = track.querySelector(".timeline-duration").getBoundingClientRect();
         assert(label.left >= bounds.left - 1 && label.right <= bounds.right + 1, "Duration label clipped");
+        const next = track.closest(".timeline-row").nextElementSibling;
+        if (next) assert(label.bottom <= next.getBoundingClientRect().top, "Duration label overlaps next row");
+      }
+      for (const details of doc.querySelectorAll(".trace-details")) {
+        const text = details.textContent;
+        details.open = true;
+        assert(details.scrollWidth <= details.clientWidth, "Expanded metadata overflow");
+        equal(details.textContent, text);
+        details.open = false;
       }
     }
     await resizeFrame(1200);
@@ -418,6 +479,124 @@
       risk_result: state === "VERIFICATION_REQUIRED" ? "VERIFY" : "CLEAR", decision: state === "ERROR" ? null : state,
       timing_trace: state === "ERROR" ? null : fixture.traces[input.workload_profile + "_" + input.execution_mode] };
   }
+  function comparisonPair(profile = "balanced") {
+    return ["sequential", "concurrent"].map(mode => clone(uiResource("SUCCEEDED", {
+      ...payload, workload_profile: profile, execution_mode: mode
+    })));
+  }
+  async function showComparison(first, second) {
+    const original = JSON.stringify([first, second]);
+    win.fetch = async () => response(201, first);
+    await submit(first.request);
+    assert(doc.getElementById("comparison-change").hidden, "A single execution must clear the previous percentage");
+    equal(doc.getElementById("comparison-change").textContent, "");
+    win.fetch = async (_, options) => {
+      equal(JSON.parse(options.body), C.otherMode(first.request));
+      return response(201, second);
+    };
+    doc.getElementById("compare-button").click();
+    await until(() => doc.querySelectorAll(".execution-card").length === 2);
+    equal(JSON.stringify([first, second]), original);
+  }
+  await test("comparison header shows one honest percentage for faster, slower, equal and tiny differences", async () => {
+    const equalPair = comparisonPair();
+    // Display-only edge-case fixtures; never replace measured runtime or benchmark data.
+    equalPair[1].timing_trace.orchestration_ms = equalPair[0].timing_trace.orchestration_ms;
+    const tinyLower = clone(equalPair), tinyHigher = clone(equalPair);
+    tinyLower[1].timing_trace.orchestration_ms *= .9996;
+    tinyHigher[1].timing_trace.orchestration_ms *= 1.0004;
+    for (const [pair, direction, color] of [
+      [comparisonPair(), "lower", "rgb(8, 113, 91)"],
+      [comparisonPair("lightweight"), "higher", "rgb(136, 97, 18)"],
+      [equalPair, "equal", "rgb(97, 117, 124)"],
+      [tinyLower, "lower", "rgb(8, 113, 91)"],
+      [tinyHigher, "higher", "rgb(136, 97, 18)"]
+    ]) {
+      await showComparison(...pair);
+      const change = doc.getElementById("comparison-change"), summary = doc.getElementById("comparison-summary");
+      const reduction = C.comparison(...pair).reduction;
+      assert(!change.hidden);
+      equal(change.dataset.direction, direction);
+      equal(change.querySelector("strong").textContent,
+        reduction !== 0 && Math.abs(reduction) < .05 ? "<0.1%" : Math.abs(reduction).toFixed(1) + "%");
+      equal(win.getComputedStyle(change.querySelector("strong")).color, color);
+      equal(change.querySelector("span").textContent, direction === "equal" ? "No orchestration time difference in this pair"
+        : `${direction === "lower" ? "Lower" : "Higher"} orchestration time in this pair`);
+      equal((doc.getElementById("execution-output").textContent.match(/%/g) || []).length, 1);
+      assert(!summary.textContent.includes("%") && !summary.textContent.includes(" ms"));
+      assert(summary.textContent.includes("Both attempts produced the same business outcome."));
+      assert(summary.textContent.includes("Two observations are not a formal benchmark."));
+      for (const width of [1200, 1152, 390, 320]) {
+        await resizeFrame(width);
+        const heading = doc.getElementById("execution-output-heading").getBoundingClientRect();
+        const bounds = change.getBoundingClientRect();
+        const header = doc.querySelector(".execution-output-header").getBoundingClientRect();
+        assert(bounds.left >= header.left && bounds.right <= header.right && bounds.bottom <= header.bottom);
+        assert(bounds.left >= heading.right || bounds.top >= heading.bottom, "Header content overlaps");
+        assert(change.scrollWidth <= change.clientWidth && doc.documentElement.scrollWidth <= width);
+      }
+    }
+    await resizeFrame(1200);
+  });
+  await test("unavailable comparisons hide stale percentages and only claim recorded matching outcomes", async () => {
+    const missing = comparisonPair(), invalid = comparisonPair(), different = comparisonPair();
+    const error = comparisonPair(), zero = comparisonPair(), inputs = comparisonPair(), unknown = comparisonPair();
+    missing[1].timing_trace = null;
+    invalid[1].timing_trace.branches.risk.duration_ms = -1;
+    Object.assign(different[1], { state: "DECLINED", issuer_result: "DECLINED" });
+    Object.assign(error[1], { state: "ERROR", issuer_result: null, risk_result: null });
+    inputs[1].request.amount_pkr = "8000.00";
+    unknown[0].issuer_result = unknown[1].issuer_result = null;
+    for (const name of ["orchestration_ms", "decision_ms", "overlap_ms"]) zero[0].timing_trace[name] = 0;
+    for (const branch of Object.values(zero[0].timing_trace.branches)) {
+      for (const name of ["start_ms", "end_ms", "duration_ms"]) branch[name] = 0;
+    }
+    for (const [pair, outcome] of [[missing, "same"], [invalid, "same"], [different, "different"],
+      [error, "unknown"], [zero, "same"], [inputs, "same"], [unknown, "unknown"]]) {
+      await showComparison(...pair);
+      const change = doc.getElementById("comparison-change"), summary = doc.getElementById("comparison-summary").textContent;
+      assert(change.hidden);
+      equal(change.textContent, "");
+      assert(!change.hasAttribute("data-direction"));
+      assert(!doc.getElementById("execution-output").textContent.includes("%"));
+      assert(summary.includes("unavailable"));
+      equal(summary.includes("Both attempts produced the same business outcome."), outcome === "same");
+      equal(summary.includes("The attempts produced different business outcomes."), outcome === "different");
+      equal(summary.includes("Matching business outcomes could not be confirmed"), outcome === "unknown");
+      assert(summary.includes("Two observations are not a formal benchmark."));
+    }
+  });
+  await test("two-decimal headline strings preserve raw traces, geometry, bar labels and exact details", async () => {
+    function freeze(value) {
+      if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); }
+      return value;
+    }
+    for (const trace of Object.values(fixture.traces)) {
+      const input = { ...payload, workload_profile: trace.workload_profile, execution_mode: trace.execution_mode };
+      const body = freeze(clone(uiResource("SUCCEEDED", input)));
+      const original = JSON.stringify(body);
+      win.fetch = async () => response(201, body);
+      await submit(input);
+      const timeline = doc.querySelector(".timeline");
+      const metrics = [...timeline.querySelectorAll(".metric strong")];
+      equal(metrics.map(metric => metric.textContent), [trace.orchestration_ms, trace.overlap_ms].map(value => value.toFixed(2) + " ms"));
+      equal(metrics.map(metric => metric.title), [trace.orchestration_ms, trace.overlap_ms].map(value => value + " ms"));
+      const maximum = Number(timeline.dataset.axisMaxMs);
+      for (const [key, branch] of Object.entries(trace.branches)) {
+        const bar = timeline.querySelector(".timeline-bar." + key);
+        equal({ ...bar.dataset }, { startMs: String(branch.start_ms), endMs: String(branch.end_ms), durationMs: String(branch.duration_ms) });
+        assert(Math.abs(parseFloat(bar.style.left) - branch.start_ms / maximum * 100) < 1e-4);
+        assert(Math.abs(parseFloat(bar.style.width) - (branch.end_ms - branch.start_ms) / maximum * 100) < 1e-4);
+        equal(timeline.querySelector(".timeline-duration." + key).textContent, C.milliseconds(branch.duration_ms));
+      }
+      equal([...timeline.querySelectorAll(".trace-details p")].map(p => p.textContent), [
+        ...Object.entries(trace.branches).map(([key, b]) =>
+          `${key}: start ${b.start_ms} ms · end ${b.end_ms} ms · duration ${b.duration_ms} ms · ${b.status} · artificial wait ${b.artificial_delay_ms} ms`),
+        `Decision at ${trace.decision_ms} ms · total ${trace.orchestration_ms} ms · overlap ${trace.overlap_ms} ms`
+      ]);
+      equal(JSON.stringify(body), original);
+    }
+  });
   await test("processing feedback follows the pending request without flashing the introduction", async () => {
     setExplorer(false);
     let release;
@@ -460,6 +639,10 @@
       const execution = doc.querySelector(".execution-card");
       const explanation = execution.textContent;
       equal(outcome.dataset.state, state);
+      equal(execution.querySelector(".execution-state").textContent, {
+        SUCCEEDED: "Succeeded", DECLINED: "Declined", VERIFICATION_REQUIRED: "Verification required", ERROR: "Error"
+      }[state]);
+      equal(body.state, state);
       equal(outcome.querySelector("h3").textContent, { SUCCEEDED: "Payment Approved", DECLINED: "Payment Declined",
         VERIFICATION_REQUIRED: "Sandbox Verification Required", ERROR: "Payment Processing Error" }[state]);
       assert(doc.getElementById("checkout-card").contains(outcome));
@@ -519,7 +702,8 @@
       equal(label.textContent, C.milliseconds(Number(bar.dataset.durationMs)));
       assert(label.classList.contains("inside"));
       equal(win.getComputedStyle(label).color, "rgb(255, 255, 255)");
-      assert(Number(win.getComputedStyle(label).fontWeight) >= 700);
+      equal(win.getComputedStyle(label).fontSize, "12px");
+      equal(win.getComputedStyle(label).fontWeight, "600");
       equal(win.getComputedStyle(label).backgroundColor, "rgba(0, 0, 0, 0)");
       equal(win.getComputedStyle(label).backgroundImage, "none");
       const a = bar.getBoundingClientRect(), b = label.getBoundingClientRect();
