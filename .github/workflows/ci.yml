@@ -170,3 +170,95 @@ jobs:
           path: ${{ runner.temp }}/asaanpay-ci-logs/
           retention-days: 7
           if-no-files-found: warn
+
+  bandit:
+    name: Bandit SAST
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install isolated Bandit 1.9.4
+        run: |
+          python -m venv "$RUNNER_TEMP/bandit"
+          "$RUNNER_TEMP/bandit/bin/python" -m pip install bandit==1.9.4
+          "$RUNNER_TEMP/bandit/bin/bandit" --version
+
+      - name: Require a complete SAST scan with no blocking findings
+        run: |
+          "$RUNNER_TEMP/bandit/bin/python" .github/scripts/bandit_gate.py
+
+  gitleaks:
+    name: Gitleaks history scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - name: Check out complete branch and tag history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install checksum-verified Gitleaks 8.30.1 CLI
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          "$RUNNER_TEMP/gitleaks/gitleaks" version
+
+      - name: Scan all fetched history with redaction
+        run: |
+          # GL-001 lists only reviewed historical fingerprints; no secret report is uploaded.
+          bash .github/scripts/gitleaks_gate.sh "$RUNNER_TEMP/gitleaks/gitleaks"
+
+  pip-audit:
+    name: Python dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install isolated pip-audit 2.10.1
+        run: |
+          python -m venv "$RUNNER_TEMP/pip-audit"
+          "$RUNNER_TEMP/pip-audit/bin/python" -m pip install pip-audit==2.10.1
+          "$RUNNER_TEMP/pip-audit/bin/pip-audit" --version
+
+      - name: Audit requirements and resolved transitive dependencies
+        run: |
+          # --strict rejects dependency-collection failures; it is not a severity filter.
+          # JSON records the resolved inventory and advisory IDs without advisory descriptions.
+          "$RUNNER_TEMP/pip-audit/bin/pip-audit" -r requirements.txt --strict \
+            --progress-spinner off --timeout 30 --format json --desc off --aliases on

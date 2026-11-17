@@ -1,0 +1,11 @@
+# Reviewed synthetic benchmark idempotency identifiers, not authentication secrets.
+# Exact commit/path/rule/line fingerprints only; no file, directory or rule exclusions.
+# Rationale and review conditions: docs/security.md (GL-001).
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/metadata.json:generic-api-key:4
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-smoke/metadata.json:generic-api-key:4
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-smoke/observations.jsonl:generic-api-key:4
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/observations.jsonl:generic-api-key:4
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/observations.jsonl:generic-api-key:7
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/observations.jsonl:generic-api-key:18
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/observations.jsonl:generic-api-key:21
+a915f5a1e69cfcc858649866f265f608ff0fc4bf:benchmarks/results/milestone6-full/observations.jsonl:generic-api-key:26
