@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [feature/aws-cicd-devsecops, main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python, PostgreSQL and browser tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        # GitHub invokes explicit bash with -e and -o pipefail: tee cannot hide failures.
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      COMPOSE_PROJECT_NAME: asaanpay-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_USER: asaanpay_ci
+      POSTGRES_DB: asaanpay_ci
+      API_PORT: "18000"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Prepare disposable test environment
+        id: test-environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/asaanpay-ci-logs"
+          python - <<'PY'
+          import os
+          import secrets
+
+          password = secrets.token_hex(32)
+          print(f"::add-mask::{password}")
+          with open(os.environ["GITHUB_ENV"], "a") as environment:
+              environment.write(f"POSTGRES_PASSWORD={password}\n")
+          PY
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install -r requirements.txt 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/dependencies.log"
+
+      - name: Run Python unit and component tests
+        run: |
+          RUN_DB_TESTS=0 python -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/unit.log"
+
+      - name: Locate Chrome or Chromium
+        run: |
+          if ! chrome_bin="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"; then
+            echo "::error::Chrome/Chromium is required on the Ubuntu runner."
+            exit 1
+          fi
+          "$chrome_bin" --version
+          printf 'CHROME_BIN=%s\n' "$chrome_bin" >> "$GITHUB_ENV"
+          docker compose version
+
+      - name: Start isolated PostgreSQL and API
+        id: test-stack
+        run: |
+          # A unique project owns its own network, containers and postgres_data volume.
+          # Explicit configuration and /dev/null prevent loading a development .env.
+          if docker volume inspect "${COMPOSE_PROJECT_NAME}_postgres_data" >/dev/null 2>&1; then
+            echo "::error::The disposable database volume already exists; refusing to reuse it."
+            exit 1
+          fi
+          docker compose --env-file /dev/null -f compose.yaml config --quiet
+          echo "cleanup-needed=true" >> "$GITHUB_OUTPUT"
+          docker compose --env-file /dev/null -f compose.yaml up --build --detach --wait --wait-timeout 120 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/startup.log"
+
+      - name: Verify health and initialized empty schema
+        run: |
+          curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:${API_PORT}/api/health" | tee "$RUNNER_TEMP/asaanpay-ci-logs/health.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          health = json.loads((Path(os.environ["RUNNER_TEMP"]) / "asaanpay-ci-logs/health.json").read_text())
+          if health != {"status": "ok", "database": "connected"}:
+              raise SystemExit("Unexpected API/database health response")
+          PY
+          rows="$(docker compose --env-file /dev/null -f compose.yaml exec -T db sh -ec 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM payment_attempts;"')"
+          if [ "$rows" != "0" ]; then
+            echo "::error::Expected an initialized, empty disposable payment_attempts table."
+            exit 1
+          fi
+
+      - name: Run full Python suite with PostgreSQL integration
+        run: |
+          docker compose --env-file /dev/null -f compose.yaml exec -T -e RUN_DB_TESTS=1 api python -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/integration.log"
+
+      - name: Require execution of every database test without skips
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import re
+          from pathlib import Path
+
+          expected = set()
+          for module, class_name in (
+              ("test_checkouts", "CheckoutDatabaseTests"),
+              ("test_database", "DatabaseTests"),
+          ):
+              tree = ast.parse(Path(f"tests/{module}.py").read_text())
+              for node in tree.body:
+                  if isinstance(node, ast.ClassDef) and node.name == class_name:
+                      for method in node.body:
+                          if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and method.name.startswith("test_"):
+                              expected.add(f"{module}.{class_name}.{method.name}")
+          log = (Path(os.environ["RUNNER_TEMP"]) / "asaanpay-ci-logs/integration.log").read_text()
+          observed = set(re.findall(r"^test_\S+ \(([^)]+)\) \.\.\.", log, re.MULTILINE))
+          missing = expected - observed
+          if len(expected) < 11 or missing:
+              raise SystemExit(f"Database test coverage is incomplete: discovered={len(expected)}, missing={sorted(missing)}")
+          if re.search(r"\bskipped\b", log) or not re.search(r"^OK$", log, re.MULTILINE):
+              raise SystemExit("The integration suite must pass with zero skipped tests")
+          print(f"Verified all {len(expected)} database tests executed; the full suite passed without skips.")
+          PY
+
+      - name: Run JavaScript and browser checks
+        run: |
+          python tests/run_frontend.py --url "http://127.0.0.1:${API_PORT}" --chrome "$CHROME_BIN" 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/frontend.log"
+
+      - name: Collect container diagnostics
+        if: ${{ always() && steps.test-stack.outputs.cleanup-needed == 'true' }}
+        run: |
+          docker compose --env-file /dev/null -f compose.yaml ps --all > "$RUNNER_TEMP/asaanpay-ci-logs/containers.log" 2>&1 || true
+          docker compose --env-file /dev/null -f compose.yaml logs --no-color --timestamps > "$RUNNER_TEMP/asaanpay-ci-logs/compose.log" 2>&1 || true
+
+      - name: Remove disposable containers and database volume
+        if: ${{ always() && steps.test-stack.outputs.cleanup-needed == 'true' }}
+        run: |
+          docker compose --env-file /dev/null -f compose.yaml down --volumes --remove-orphans --timeout 10 2>&1 | tee "$RUNNER_TEMP/asaanpay-ci-logs/cleanup.log"
+
+      - name: Redact temporary password from saved logs
+        id: redact-logs
+        if: ${{ always() && steps.test-environment.outcome == 'success' }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          password = os.environ["POSTGRES_PASSWORD"]
+          for path in (Path(os.environ["RUNNER_TEMP"]) / "asaanpay-ci-logs").iterdir():
+              if path.is_file():
+                  path.write_text(path.read_text(errors="replace").replace(password, "***"))
+          PY
+
+      - name: Upload test logs
+        if: ${{ always() && steps.redact-logs.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/asaanpay-ci-logs/
+          retention-days: 7
+          if-no-files-found: warn

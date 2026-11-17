@@ -88,6 +88,25 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+## Continuous integration (CI/CD Milestone 2)
+
+`.github/workflows/ci.yml` runs on pushes to `feature/aws-cicd-devsecops` and `main`, and on pull requests targeting `main`. The **CI / Python, PostgreSQL and browser tests** job uses Ubuntu 24.04, host Python 3.13, and the runner's installed Chrome/Chromium. It needs no repository secrets or AWS access; its GitHub token has only `contents: read` permission.
+
+The job installs `requirements.txt` and runs `RUN_DB_TESTS=0 python -m unittest discover -s tests -v`: currently 50 tests execute and the 11 PostgreSQL tests are intentionally skipped. It then builds the existing development image solely to run a disposable Compose test stack. Each workflow run/attempt gets its own project name, network, database volume, and generated password. Every Compose command supplies `--env-file /dev/null -f compose.yaml`, so a development `.env` is never loaded. PostgreSQL stays on the private Compose network; only the test API is published on `127.0.0.1:18000`.
+
+After both services pass their health checks, CI verifies `/api/health` and an initialized, empty `payment_attempts` table. It executes:
+
+```sh
+docker compose --env-file /dev/null -f compose.yaml exec -T -e RUN_DB_TESTS=1 api python -m unittest discover -s tests -v
+python tests/run_frontend.py --url http://127.0.0.1:18000 --chrome "$CHROME_BIN"
+```
+
+These CI commands assume the workflow's temporary environment variables and healthy test stack; do not point them at a development or production database. A separate guard requires every database-test method declared in the two integration classes (currently 11) to appear in the verbose log, a successful unittest summary, and **zero skips**. The existing browser runner currently executes 43 JavaScript/browser checks and creates synthetic records only in the disposable database. It serves frontend assets from the checkout, so these checks are not release-image asset verification.
+
+Explicit Bash execution preserves failures through `tee` using `pipefail`. Test failures stop the job; diagnostic collection, project-scoped container/volume cleanup, and seven-day log upload run even after failures. Logs include unit, integration, browser, startup, health, and container diagnostics when their steps have run. The temporary password is masked in Actions output and redacted from saved files before upload. Cleanup uses `down --volumes` only for the uniquely named CI project. No full performance benchmark, release packaging, security scanner, or deployment runs in this workflow.
+
+After reviewing and committing these changes, push `feature/aws-cicd-devsecops` to `origin`, open the repository's **Actions → CI** run for that exact commit, and check all test stages plus cleanup. Expect 61 Python tests with no skips in the integration stage, confirmation of all 11 database tests, and `RESULT: 43 passed; 0 failed` from the browser runner. Download `ci-logs-<run-id>-<attempt>` when troubleshooting. Local checks alone do not establish that GitHub Actions is green. For remote failure-path evidence, temporarily introduce a failing assertion on this feature branch, confirm the test step and workflow turn red while logs/cleanup still run, then revert that assertion and confirm the next run is green; do not merge the failing change.
+
 ## Controlled benchmark (Milestone 6)
 
 Use the already running local application and finish regression tests first:
