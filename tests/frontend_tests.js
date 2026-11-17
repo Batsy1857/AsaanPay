@@ -229,7 +229,29 @@
     const checkout = doc.querySelector(".checkout-column").getBoundingClientRect();
     const explorer = doc.getElementById("architecture-explorer").getBoundingClientRect();
     assert(explorer.top > checkout.bottom);
-    assert(checkout.width <= 520 && Math.abs(checkout.left - (win.innerWidth - checkout.right)) < 2);
+    // CSS auto margins center within the layout area, excluding classic scrollbars.
+    // innerWidth includes that scrollbar; the root clientWidth does not.
+    const viewport = doc.documentElement;
+    const rightMargin = viewport.clientWidth - checkout.right;
+    assert(checkout.width <= 520 && Math.abs(checkout.left - rightMargin) < 2,
+      "Checkout must be <= 520 CSS px wide and centered within 2 CSS px: " + JSON.stringify({
+        checkout: { width: checkout.width, left: checkout.left, right: checkout.right },
+        leftMargin: checkout.left, rightMargin,
+        marginDifference: Math.abs(checkout.left - rightMargin),
+        innerWidth: win.innerWidth, clientWidth: viewport.clientWidth,
+        innerHeight: win.innerHeight, clientHeight: viewport.clientHeight,
+        scrollbarWidth: win.innerWidth - viewport.clientWidth,
+        scrollWidth: viewport.scrollWidth, scrollHeight: viewport.scrollHeight,
+        devicePixelRatio: win.devicePixelRatio,
+        visualViewport: win.visualViewport ? {
+          width: win.visualViewport.width, height: win.visualViewport.height, scale: win.visualViewport.scale
+        } : null,
+        iframe: { width: frame.clientWidth, height: frame.clientHeight },
+        browserWindow: {
+          innerWidth: window.innerWidth, innerHeight: window.innerHeight,
+          outerWidth: window.outerWidth, outerHeight: window.outerHeight
+        }
+      }));
   });
   await test("Architecture Explorer owns simulation controls without duplicating the checkout form", () => {
     setExplorer(true);
