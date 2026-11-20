@@ -227,7 +227,7 @@ unfiltered report. Successful scanner execution alone never grants approval.
 Scanner failures, malformed reports, unexpected image identity, unsupported OS,
 and missing OS or Python application inventories fail closed. A receipt bound to
 the image ID is written only after policy success, and packaging requires it.
-The readable summary and full findings are uploaded separately for 14 days even
+The readable summary and full findings are uploaded separately with 90-day requested retention (subject to repository/organization limits), even
 when the vulnerability gate fails. Release packages upload only after every check
 and reload verification succeeds. No `continue-on-error` or severity suppression
 is used; the existing stricter pip-audit policy still blocks *every* Python advisory.
@@ -236,3 +236,28 @@ See [release operations](releases.md) and [actual local findings](milestone-4-re
 for reproducible commands and the dated scan result. No dependency upgrade is
 performed automatically. If a fix requires an application, Python or distribution
 upgrade, report the affected packages and compatibility risks before changing it.
+
+
+## M4B reporting and triage
+
+The blocking predicate and receipt are unchanged: fixable High/Critical findings
+block for OS and application packages; lower-severity and unfixed findings remain
+reported. Every summary begins with PASS/FAIL and the blocking count. An incomplete
+scanner/database/policy evaluation says FAIL with an **unknown** count, never zero,
+and cannot leave a stale passing summary/approval.
+
+High/Critical rows are grouped by advisory and the Debian `SrcName` from the scan's
+package inventory. All package-level severity/fixability counts remain intact.
+For the reviewed M4 scan the generated result is 47 High findings, 11 unique CVEs
+and six Debian sources; these values are computed, not embedded constants.
+Fix availability is explicitly scoped to the distribution and scan database;
+upstream fixes can exist without a patched Debian 13 package.
+
+The explicit index in [security-triage.md](security-triage.md) matches CVE, Debian
+major release and source package. A new, mismatched, or undocumented finding is
+`NOT TRIAGED`. Missing or malformed triage documentation leaves findings untriaged;
+it does not suppress them or alter the vulnerability policy. `DOCUMENTED` means
+only that a dated review exists, not that the CVE is safe or deployment-approved.
+The index is never sent to Trivy as an ignore list or VEX input. Full inventory,
+severity source and findings remain in the JSON evidence. Review the entries by
+2026-12-04 or earlier when the image/runtime/advisory changes.

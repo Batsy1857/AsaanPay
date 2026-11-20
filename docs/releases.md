@@ -70,7 +70,12 @@ and complete dependency lock are future reproducibility improvements.
 
 Trivy 0.69.3 is installed from a fixed official archive with a committed checksum.
 The scan requires a fresh vulnerability DB, covers OS and language packages, and
-binds its report/approval to the image ID. Fixable High/Critical findings block;
+binds its report/approval to the image ID. Its summary starts with PASS/FAIL and
+the blocking count, preserves complete severity counts, and groups High/Critical
+findings by advisory and Debian source package. Counts come from the current JSON
+inventory. [Security triage](security-triage.md) records dated reviews; missing CVE,
+source or Debian-release matches are `NOT TRIAGED` and require review. That label
+does not suppress findings or change the blocking decision. Fixable High/Critical findings block;
 unfixed findings remain visible for review. Scanner/DB/coverage failures block.
 See [the complete security policy](security.md#milestone-4-release-image-vulnerability-gate).
 
@@ -189,14 +194,32 @@ implemented here.
    dispatch trigger is added. The implementation session itself does neither.
 2. Open **Batsy1857/AsaanPay → Actions → CI** for that exact pushed SHA. Expect the
    original four jobs, followed by **Versioned image, Trivy and release artifact**.
-3. Confirm 79 integration tests with zero skips, all 11 database methods and 46
+3. Confirm 89 integration tests with zero skips, all 11 database methods and 46
    browser checks. Verify the original Bandit, Gitleaks and pip-audit policies pass.
 4. In the new job, confirm `linux/amd64`, full SHA/run/attempt, exactly one release
    build, Trivy 0.69.3 checksum verification, fresh DB evidence, policy summary,
    smoke success and successful reload/integrity verification.
-5. Download the uniquely named release artifact (14-day retention), verify its
+5. Download the uniquely named release artifact (90-day requested retention, subject to repository/organization limits), verify its
    checksums and manifest as above. `local_validation` and `source_dirty` must both
    be false. Download `image-security-<run-id>-<attempt>` for full scan evidence.
 6. A scanner/DB/policy failure must produce a failed job and no release artifact.
    Fixable High/Critical findings require reviewed remediation, not weaker gates.
    A rerun uses a new attempt suffix. No AWS credentials or publication should appear.
+
+
+## M4B artifact maintenance
+
+All three upload steps use official `actions/upload-artifact` **v7.0.2**, pinned to
+`cf430e030ddbb5b0abf93d22962f4752f3646cd9`. On 2026-11-20 the official
+[latest release](https://github.com/actions/upload-artifact/releases/tag/v7.0.2),
+[tag reference](https://api.github.com/repos/actions/upload-artifact/git/ref/tags/v7.0.2)
+and [action definition at that exact commit](https://github.com/actions/upload-artifact/blob/cf430e030ddbb5b0abf93d22962f4752f3646cd9/action.yml)
+were checked independently of the audit: the runtime is `node24` and archive
+upload remains enabled by default. Existing inputs/names and upload conditions
+are preserved. Checkout/setup-python pins are unchanged.
+
+Release packages and image-security evidence now request **90 days**. Test logs
+still request seven days. Repository/organization/enterprise retention limits
+remain authoritative; confirm effective `expires_at` on the next hosted run.
+No account retention setting is changed, and this does not extend the lifetime
+of artifacts uploaded by previous workflow runs.

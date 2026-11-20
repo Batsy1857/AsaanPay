@@ -92,7 +92,7 @@ python3 -m venv .venv
 
 `.github/workflows/ci.yml` runs on pushes to `feature/aws-cicd-devsecops` and `main`, and on pull requests targeting `main`. The **CI / Python, PostgreSQL and browser tests** job uses Ubuntu 24.04, host Python 3.13, and the runner's installed Chrome/Chromium. It needs no repository secrets or AWS access; its GitHub token has only `contents: read` permission.
 
-The job installs `requirements.txt` and runs `RUN_DB_TESTS=0 python -m unittest discover -s tests -v`: currently 68 tests execute and the 11 PostgreSQL tests are intentionally skipped. It then builds the existing development image solely to run a disposable Compose test stack. Each workflow run/attempt gets its own project name, network, database volume, and generated password. Every Compose command supplies `--env-file /dev/null -f compose.yaml`, so a development `.env` is never loaded. PostgreSQL stays on the private Compose network; only the test API is published on `127.0.0.1:18000`.
+The job installs `requirements.txt` and runs `RUN_DB_TESTS=0 python -m unittest discover -s tests -v`: currently 78 tests execute and the 11 PostgreSQL tests are intentionally skipped. It then builds the existing development image solely to run a disposable Compose test stack. Each workflow run/attempt gets its own project name, network, database volume, and generated password. Every Compose command supplies `--env-file /dev/null -f compose.yaml`, so a development `.env` is never loaded. PostgreSQL stays on the private Compose network; only the test API is published on `127.0.0.1:18000`.
 
 After both services pass their health checks, CI verifies `/api/health` and an initialized, empty `payment_attempts` table. It executes:
 
@@ -105,7 +105,7 @@ These CI commands assume the workflow's temporary environment variables and heal
 
 Explicit Bash execution preserves failures through `tee` using `pipefail`. Test failures stop the job; diagnostic collection, project-scoped container/volume cleanup, and seven-day log upload run even after failures. Logs include unit, integration, browser, startup, health, and container diagnostics when their steps have run. The temporary password is masked in Actions output and redacted from saved files before upload. Cleanup uses `down --volumes` only for the uniquely named CI project. The tests job runs no full performance benchmark, release packaging or deployment.
 
-After reviewing and committing these changes, push `feature/aws-cicd-devsecops` to `origin`, open the repository's **Actions → CI** run for that exact commit, and check all test stages plus cleanup. Expect 79 Python tests with no skips in the integration stage, confirmation of all 11 database tests, and `RESULT: 46 passed; 0 failed` from the browser runner. Download `ci-logs-<run-id>-<attempt>` when troubleshooting. Local checks alone do not establish that GitHub Actions is green. For remote failure-path evidence, temporarily introduce a failing assertion on this feature branch, confirm the test step and workflow turn red while logs/cleanup still run, then revert that assertion and confirm the next run is green; do not merge the failing change.
+After reviewing and committing these changes, push `feature/aws-cicd-devsecops` to `origin`, open the repository's **Actions → CI** run for that exact commit, and check all test stages plus cleanup. Expect 89 Python tests with no skips in the integration stage, confirmation of all 11 database tests, and `RESULT: 46 passed; 0 failed` from the browser runner. Download `ci-logs-<run-id>-<attempt>` when troubleshooting. Local checks alone do not establish that GitHub Actions is green. For remote failure-path evidence, temporarily introduce a failing assertion on this feature branch, confirm the test step and workflow turn red while logs/cleanup still run, then revert that assertion and confirm the next run is green; do not merge the failing change.
 
 ## Security gates (CI/CD Milestone 3)
 
@@ -117,8 +117,11 @@ After all four checks pass, **Versioned image, Trivy and release artifact** buil
 one `linux/amd64` production image, scans that image ID with checksum-verified
 Trivy 0.69.3, smoke-tests it against disposable PostgreSQL, saves it, and verifies
 the saved image with `docker load` and a second smoke test. Only a successful run
-uploads `asaanpay-release-<release-id>` to GitHub Actions artifacts for 14 days.
-No AWS publication or deployment runs.
+uploads `asaanpay-release-<release-id>` to GitHub Actions artifacts with 90-day requested retention, subject to repository/organization limits.
+No AWS publication or deployment runs. The security summary leads with PASS/FAIL,
+retains every severity count, and groups High findings by CVE and Debian source
+package. [Dated security triage](docs/security-triage.md) records the exposure review;
+new or mismatched High CVEs appear as `NOT TRIAGED` without changing the gate.
 
 `GET /api/version` returns `{"version":"1.0.4","commit":"<full SHA>"}` from the
 image's read-only release metadata. Local Compose returns
