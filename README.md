@@ -92,7 +92,7 @@ python3 -m venv .venv
 
 `.github/workflows/ci.yml` runs on pushes to `feature/aws-cicd-devsecops` and `main`, and on pull requests targeting `main`. The **CI / Python, PostgreSQL and browser tests** job uses Ubuntu 24.04, host Python 3.13, and the runner's installed Chrome/Chromium. It needs no repository secrets or AWS access; its GitHub token has only `contents: read` permission.
 
-The job installs `requirements.txt` and runs `RUN_DB_TESTS=0 python -m unittest discover -s tests -v`: currently 50 tests execute and the 11 PostgreSQL tests are intentionally skipped. It then builds the existing development image solely to run a disposable Compose test stack. Each workflow run/attempt gets its own project name, network, database volume, and generated password. Every Compose command supplies `--env-file /dev/null -f compose.yaml`, so a development `.env` is never loaded. PostgreSQL stays on the private Compose network; only the test API is published on `127.0.0.1:18000`.
+The job installs `requirements.txt` and runs `RUN_DB_TESTS=0 python -m unittest discover -s tests -v`: currently 68 tests execute and the 11 PostgreSQL tests are intentionally skipped. It then builds the existing development image solely to run a disposable Compose test stack. Each workflow run/attempt gets its own project name, network, database volume, and generated password. Every Compose command supplies `--env-file /dev/null -f compose.yaml`, so a development `.env` is never loaded. PostgreSQL stays on the private Compose network; only the test API is published on `127.0.0.1:18000`.
 
 After both services pass their health checks, CI verifies `/api/health` and an initialized, empty `payment_attempts` table. It executes:
 
@@ -101,15 +101,43 @@ docker compose --env-file /dev/null -f compose.yaml exec -T -e RUN_DB_TESTS=1 ap
 python tests/run_frontend.py --url http://127.0.0.1:18000 --chrome "$CHROME_BIN"
 ```
 
-These CI commands assume the workflow's temporary environment variables and healthy test stack; do not point them at a development or production database. A separate guard requires every database-test method declared in the two integration classes (currently 11) to appear in the verbose log, a successful unittest summary, and **zero skips**. The existing browser runner currently executes 43 JavaScript/browser checks and creates synthetic records only in the disposable database. It serves frontend assets from the checkout, so these checks are not release-image asset verification.
+These CI commands assume the workflow's temporary environment variables and healthy test stack; do not point them at a development or production database. A separate guard requires every database-test method declared in the two integration classes (currently 11) to appear in the verbose log, a successful unittest summary, and **zero skips**. The existing browser runner currently executes 46 JavaScript/browser checks and creates synthetic records only in the disposable database. It serves frontend assets from the checkout, so these checks are not release-image asset verification.
 
 Explicit Bash execution preserves failures through `tee` using `pipefail`. Test failures stop the job; diagnostic collection, project-scoped container/volume cleanup, and seven-day log upload run even after failures. Logs include unit, integration, browser, startup, health, and container diagnostics when their steps have run. The temporary password is masked in Actions output and redacted from saved files before upload. Cleanup uses `down --volumes` only for the uniquely named CI project. The tests job runs no full performance benchmark, release packaging or deployment.
 
-After reviewing and committing these changes, push `feature/aws-cicd-devsecops` to `origin`, open the repository's **Actions → CI** run for that exact commit, and check all test stages plus cleanup. Expect 61 Python tests with no skips in the integration stage, confirmation of all 11 database tests, and `RESULT: 43 passed; 0 failed` from the browser runner. Download `ci-logs-<run-id>-<attempt>` when troubleshooting. Local checks alone do not establish that GitHub Actions is green. For remote failure-path evidence, temporarily introduce a failing assertion on this feature branch, confirm the test step and workflow turn red while logs/cleanup still run, then revert that assertion and confirm the next run is green; do not merge the failing change.
+After reviewing and committing these changes, push `feature/aws-cicd-devsecops` to `origin`, open the repository's **Actions → CI** run for that exact commit, and check all test stages plus cleanup. Expect 79 Python tests with no skips in the integration stage, confirmation of all 11 database tests, and `RESULT: 46 passed; 0 failed` from the browser runner. Download `ci-logs-<run-id>-<attempt>` when troubleshooting. Local checks alone do not establish that GitHub Actions is green. For remote failure-path evidence, temporarily introduce a failing assertion on this feature branch, confirm the test step and workflow turn red while logs/cleanup still run, then revert that assertion and confirm the next run is green; do not merge the failing change.
 
 ## Security gates (CI/CD Milestone 3)
 
-The same workflow independently runs **Bandit SAST** (1.9.4), **Gitleaks history scan** (CLI 8.30.1), and **Python dependency audit** (pip-audit 2.10.1). Security findings at the documented thresholds and scanner failures make their jobs and the workflow fail. Scanner tooling is isolated from application dependencies. See [security policies, actual baseline findings, narrowly scoped exceptions and reproduction commands](docs/security.md). Future build/deploy jobs must depend on all three security jobs and the existing tests job. No build/deploy jobs or Trivy scanning are added in this milestone.
+The same workflow independently runs **Bandit SAST** (1.9.4), **Gitleaks history scan** (CLI 8.30.1), and **Python dependency audit** (pip-audit 2.10.1). Security findings at the documented thresholds and scanner failures make their jobs and the workflow fail. Scanner tooling is isolated from application dependencies. See [security policies, actual baseline findings, narrowly scoped exceptions and reproduction commands](docs/security.md). The Milestone 4 release job depends on all three security jobs and the existing tests job. Their policies and exceptions remain unchanged.
+
+## Versioned image and release artifact (CI/CD Milestone 4)
+
+After all four checks pass, **Versioned image, Trivy and release artifact** builds
+one `linux/amd64` production image, scans that image ID with checksum-verified
+Trivy 0.69.3, smoke-tests it against disposable PostgreSQL, saves it, and verifies
+the saved image with `docker load` and a second smoke test. Only a successful run
+uploads `asaanpay-release-<release-id>` to GitHub Actions artifacts for 14 days.
+No AWS publication or deployment runs.
+
+`GET /api/version` returns `{"version":"1.0.4","commit":"<full SHA>"}` from the
+image's read-only release metadata. Local Compose returns
+`{"version":"dev","commit":"dev"}`. A small footer badge retrieves this endpoint;
+version failure never disables checkout or Architecture Explorer. Application
+versioning does not change the payment rule set `sandbox_v1`.
+
+The version is maintained in `VERSION`. Release IDs/tags use
+`<version>-g<full-commit-SHA>-r<Actions-run-id>-a<run-attempt>`. The artifact contains
+`image.tar.gz`, `manifest.json`, and `SHA256SUMS`; it contains no database data or
+runtime credentials. From the downloaded artifact directory:
+
+```sh
+sha256sum --check --strict SHA256SUMS   # macOS: shasum -a 256 --check --strict SHA256SUMS
+docker load --input image.tar.gz
+```
+
+See the [release build, policy, verification and future EC2 consumption guide](docs/releases.md)
+and the [Milestone 4 implementation and local validation report](docs/milestone-4-report.md).
 
 ## Controlled benchmark (Milestone 6)
 

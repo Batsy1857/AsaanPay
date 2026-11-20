@@ -186,6 +186,47 @@
   const form = doc.getElementById("checkout-form");
   const toggle = doc.getElementById("explorer-toggle");
   const panel = doc.getElementById("explorer-panel");
+  const versionSource = await (await fetch("/static/version.js")).text();
+  const versionFetch = win.fetch.bind(win);
+  const badge = doc.getElementById("version-badge");
+  async function versionFixture(fetcher) {
+    badge.textContent = "Loading fixture";
+    win.fetch = fetcher;
+    await win.eval(versionSource);
+  }
+  await test("version badge retrieves API metadata and remains visible outside Explorer", async () => {
+    const metadata = await (await versionFetch("/api/version")).json();
+    await versionFixture(versionFetch);
+    equal(badge.textContent, metadata.version === "dev" ? "AsaanPay dev"
+      : `AsaanPay v${metadata.version} · ${metadata.commit.slice(0, 7)}`);
+    assert(badge.getClientRects().length && !panel.contains(badge));
+    equal(badge.getAttribute("aria-label"), "Application version");
+  });
+  await test("release and development badges use safe text", async () => {
+    await versionFixture(async url => {
+      equal(url, "/api/version");
+      return { ok: true, json: async () => ({ version: "1.0.4", commit: "a".repeat(40) }) };
+    });
+    equal(badge.textContent, "AsaanPay v1.0.4 · aaaaaaa");
+    await versionFixture(async () => ({ ok: true, json: async () => ({ version: "dev", commit: "dev" }) }));
+    equal(badge.textContent, "AsaanPay dev");
+    await versionFixture(async () => ({ ok: true, json: async () => ({ version: '<img src=x onerror="window.injected=true">', commit: "a".repeat(40) }) }));
+    equal(badge.textContent, "AsaanPay · version unavailable");
+    assert(!badge.querySelector("img") && !win.injected);
+  });
+  await test("version HTTP, JSON, network and timeout failures leave checkout and Explorer usable", async () => {
+    for (const fetcher of [async () => ({ ok: false }), async () => { throw new TypeError("offline"); },
+      async () => ({ ok: true, json: async () => { throw new Error("invalid JSON"); } }),
+      (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("timeout"))))]) {
+      await versionFixture(fetcher);
+      equal(badge.textContent, "AsaanPay · version unavailable");
+      assert(!doc.getElementById("pay-button").disabled && !form.hidden);
+      toggle.click(); equal(toggle.getAttribute("aria-expanded"), "true");
+      toggle.click(); equal(toggle.getAttribute("aria-expanded"), "false");
+    }
+  });
+  // The existing real checkout/browser suite now runs after failed version retrieval.
+  win.fetch = versionFetch;
   function setExplorer(open) {
     if ((toggle.getAttribute("aria-expanded") === "true") !== open) toggle.click();
   }

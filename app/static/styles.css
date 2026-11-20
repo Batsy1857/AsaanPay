@@ -135,7 +135,8 @@ h3 { font-size: 20px; font-weight: 650; letter-spacing: -.5px; margin: 8px 0; }
 .comparison-summary h4 { font-size: 14px; margin: 0 0 8px; }
 .comparison-summary p { font-size: 13px; color: #456963; margin: 5px 0; font-variant-numeric: tabular-nums; }
 .comparison-note { text-align: center; margin-bottom: 0; }
-footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); margin-top: 36px; padding-top: 18px; color: var(--muted); font-size: 10px; }
+footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); margin-top: 36px; padding-top: 18px; color: var(--muted); font-size: 10px; }
+#version-badge { overflow-wrap: anywhere; }
 .checkout-column { min-width: 0; width: 100%; max-width: 520px; margin: 0 auto; }
 .explorer-link { display: block; text-align: center; color: var(--teal); font-size: 11px; margin-top: 10px; padding: 12px 0; min-height: 44px; text-underline-offset: 3px; }
 .architecture-explorer { min-width: 0; border: 1px solid #cbdcde; border-radius: 15px; background: #edf3f3; overflow: hidden; scroll-margin-top: 20px; }

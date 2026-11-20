@@ -4,8 +4,9 @@ The existing `tests` job and its push/PR triggers are preserved. Three independe
 Ubuntu 24.04 jobs run alongside it, using the workflow's `contents: read` permission.
 All nonzero scanner or installation exits fail their jobs. No job uses
 `continue-on-error`, `--exit-zero`, automated dependency fixes, or a vulnerability
-baseline that hides previous vulnerabilities. Future build/deploy jobs must require
-`needs: [tests, bandit, gitleaks, pip-audit]`; this milestone adds no such jobs.
+baseline that hides previous vulnerabilities. The Milestone 4 build/release job requires
+`needs: [tests, bandit, gitleaks, pip-audit]`. The original four jobs and their
+security policies are unchanged; see the appended image-scanning policy below.
 
 | Job | Fixed scanner | Blocking policy |
 | --- | --- | --- |
@@ -69,8 +70,8 @@ typing-inspection==0.4.5 certifi==2026.10.23
 Only the four direct requirements are pinned. Transitive resolution can change
 between dates, platforms, test jobs, audits and image builds. This snapshot is
 documentation, not a dependency lock. Scanner transitive dependencies also remain
-resolver-selected. A reviewed dependency lock and audit of the exact built-image
-inventory are future work; no application dependency changes are made here.
+resolver-selected. A reviewed dependency lock remains future work. Milestone 4 now audits the exact
+built-image inventory; the Milestone 3 baseline made no application dependency changes.
 `httpx` is included because the current Dockerfile installs the entire requirements
 file, including the TestClient dependency.
 
@@ -180,8 +181,58 @@ Any new advisory or credible source finding requires investigation of affected
 versions/code, applicability and available fixes. Application security corrections
 or dependency upgrades that could affect payment behavior require review before
 implementation. No such correction or upgrade was identified as necessary by this
-baseline. No AWS, deployment, release artifacts or Trivy functionality is added.
+baseline. Milestone 3 added no AWS, deployment, release artifacts or Trivy functionality;
+the Milestone 4 additions are described below.
 
 References: [Bandit CLI](https://bandit.readthedocs.io/en/latest/man/bandit.html),
 [Gitleaks CLI and fingerprint exceptions](https://github.com/gitleaks/gitleaks),
 [pip-audit usage and exit codes](https://github.com/pypa/pip-audit).
+
+
+## Milestone 4: release image vulnerability gate
+
+Trivy **0.69.3** scans the exact built `linux/amd64` image ID, including OS and
+Python application packages. `.github/scripts/install_trivy.sh` downloads only
+fixed official release assets and checks committed SHA-256 pins before executing:
+
+- Linux x64: `1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75`
+- macOS ARM64 (local validation): `a2f2179afd4f8bb265ca3c7aefb56a666bc4a9a411663bc0f22c3549fbc643a5`
+
+This is an explicitly selected version, not `latest`. Aqua's
+[security advisory](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)
+identifies v0.69.3 as unaffected by the March 2026 compromised releases and
+protected by immutable releases. No Trivy setup/action tags are executed.
+Checksums were obtained from the
+[official v0.69.3 checksums](https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_checksums.txt).
+Review scanner upgrades explicitly, along with their provenance and policy behavior.
+
+**Blocking policy:** every OS or application **High/Critical finding with a
+published fixed version** blocks packaging and upload. Unfixed High/Critical
+findings remain visible as `REVIEW`; Medium/Low/Unknown counts and fix availability
+are also shown. Unfixed does not mean safe or inapplicable. Review exposure,
+mitigations and upstream fixes before a later deployment. No Trivy exceptions,
+ignore entries, VEX statements or directory/package exclusions are configured.
+Any future exception must identify advisory, exact package/version, scope,
+justification, owner, expiry and compensating control; it requires explicit review.
+
+The wrapper starts with a fresh cache and downloads the vulnerability database
+from the official `ghcr.io/aquasecurity/trivy-db:2` repository on every run. Download
+failure fails the check, including when an old cache exists elsewhere. That one
+fresh database is used for the image scan; `--skip-db-update` only prevents a second
+download within the same invocation. The downloaded database timestamp/version is
+saved in `db-metadata.json` alongside the complete `trivy.json` report.
+
+The CLI returns its execution status and the Python policy gate evaluates the
+unfiltered report. Successful scanner execution alone never grants approval.
+Scanner failures, malformed reports, unexpected image identity, unsupported OS,
+and missing OS or Python application inventories fail closed. A receipt bound to
+the image ID is written only after policy success, and packaging requires it.
+The readable summary and full findings are uploaded separately for 14 days even
+when the vulnerability gate fails. Release packages upload only after every check
+and reload verification succeeds. No `continue-on-error` or severity suppression
+is used; the existing stricter pip-audit policy still blocks *every* Python advisory.
+
+See [release operations](releases.md) and [actual local findings](milestone-4-report.md)
+for reproducible commands and the dated scan result. No dependency upgrade is
+performed automatically. If a fix requires an application, Python or distribution
+upgrade, report the affected packages and compatibility risks before changing it.

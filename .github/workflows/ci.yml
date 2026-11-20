@@ -262,3 +262,94 @@ jobs:
           # JSON records the resolved inventory and advisory IDs without advisory descriptions.
           "$RUNNER_TEMP/pip-audit/bin/pip-audit" -r requirements.txt --strict \
             --progress-spinner off --timeout 30 --format json --desc off --aliases on
+
+  build-release:
+    name: Versioned image, Trivy and release artifact
+    needs: [tests, bandit, gitleaks, pip-audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Test scanner and database failure handling
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Build the linux/amd64 release image once
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          export RELEASE_WORK="$RUNNER_TEMP/asaanpay-release"
+          echo "RELEASE_WORK=$RELEASE_WORK" >> "$GITHUB_ENV"
+          mkdir -p "$RELEASE_WORK"
+          python scripts/release.py build --commit "$BUILD_COMMIT" \
+            --run-id "$BUILD_RUN_ID" --attempt "$BUILD_ATTEMPT" --state "$RELEASE_WORK/state.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          state = json.loads((Path(os.environ["RELEASE_WORK"]) / "state.json").read_text())
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"RELEASE_ID={state['metadata']['release_id']}\nIMAGE_ID={state['image_id']}\n")
+          PY
+
+      - name: Install checksum-verified Trivy 0.69.3
+        run: bash .github/scripts/install_trivy.sh "$RELEASE_WORK/bin"
+
+      - name: Scan exact image and enforce vulnerability policy
+        run: bash .github/scripts/trivy_gate.sh "$RELEASE_WORK/bin/trivy" "$IMAGE_ID" "$RELEASE_WORK/security"
+
+      - name: Smoke-test exact release image against disposable PostgreSQL
+        run: python scripts/release.py smoke --state "$RELEASE_WORK/state.json"
+
+      - name: Save the approved image and checksum its release package
+        run: |
+          python scripts/release.py package --state "$RELEASE_WORK/state.json" \
+            --scan-receipt "$RELEASE_WORK/security/approved.json" --output "$RELEASE_WORK/packages"
+
+      - name: Reload and verify release package without rebuilding
+        run: |
+          python scripts/release.py verify "$RELEASE_WORK/packages/asaanpay-release-$RELEASE_ID"
+
+      - name: Upload verified release package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: asaanpay-release-${{ env.RELEASE_ID }}
+          path: ${{ env.RELEASE_WORK }}/packages/asaanpay-release-${{ env.RELEASE_ID }}/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish readable security summary
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RELEASE_WORK/security/summary.md" ]; then
+            cat "$RELEASE_WORK/security/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Trivy did not complete policy evaluation. Inspect the failed build/install/scan step; no release is approved.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload image security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RELEASE_WORK }}/security/
+          retention-days: 14
+          if-no-files-found: warn
