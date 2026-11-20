@@ -37,8 +37,13 @@ sys.exit(18)
                     output.mkdir(exist_ok=True)
                     receipt = output / 'approved.json'
                     receipt.write_text('stale approval')
+                    summary = output / 'summary.md'
+                    summary.write_text('## Release image security gate: PASS\nStale successful scan')
                     result = subprocess.run(['bash', str(ROOT / '.github/scripts/trivy_gate.sh'),
                                              str(scanner), 'sha256:' + 'a' * 64, str(output)],
                                             capture_output=True, text=True, timeout=20)
                     self.assertEqual(result.returncode, 17 if phase == 'database' else 18)
                     self.assertFalse(receipt.exists())
+                    self.assertTrue(summary.read_text().startswith('## Release image security gate: FAIL'))
+                    self.assertIn('Blocking findings: unknown', summary.read_text())
+                    self.assertNotIn('Stale', summary.read_text())

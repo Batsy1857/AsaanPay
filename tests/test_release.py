@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 
 from app.version import make_metadata
 from scripts.release import check_checksums, digest, validate_image, validate_manifest
-from scripts.trivy_policy import evaluate
+from scripts.trivy_policy import evaluate, read_triage
 
 IMAGE_ID = "sha256:" + "b" * 64
 
@@ -84,7 +86,7 @@ class ReleaseTests(unittest.TestCase):
                 validate_image(modified, self.metadata, IMAGE_ID)
 
 
-class TrivyPolicyTests(unittest.TestCase):
+class TrivyFixture:
     def setUp(self):
         self.report = {"SchemaVersion": 2, "ArtifactType": "container_image",
                        "Metadata": {"ImageID": IMAGE_ID, "OS": {"Family": "debian", "EOSL": False}},
@@ -98,6 +100,8 @@ class TrivyPolicyTests(unittest.TestCase):
         return {"Severity": severity, "FixedVersion": fixed, "VulnerabilityID": "CVE-fixture",
                 "PkgName": "fixture", "InstalledVersion": "1"}
 
+
+class TrivyPolicyTests(TrivyFixture, unittest.TestCase):
     def test_complete_clean_scan(self):
         self.assertEqual(evaluate(self.report, IMAGE_ID)[0], 0)
 
@@ -132,3 +136,153 @@ class TrivyPolicyTests(unittest.TestCase):
         for report in variants:
             with self.assertRaises((ValueError, KeyError)):
                 evaluate(report, IMAGE_ID)
+
+
+class TrivySummaryTests(TrivyFixture, unittest.TestCase):
+    """Different CVE/source cardinalities prevent counts becoming baseline constants."""
+
+    def setUp(self):
+        super().setUp()
+        self.report['Metadata']['OS']['Name'] = '13.7'
+        self.report['Results'][0]['Packages'] = [
+            {'ID': 'binary-a@1', 'Name': 'binary-a', 'SrcName': 'source-one'},
+            {'ID': 'binary-b@1', 'Name': 'binary-b', 'SrcName': 'source-one'},
+        ]
+        self.report['Results'][0]['Vulnerabilities'] = [
+            self.high('CVE-2026-10001', 'binary-a'), self.high('CVE-2026-10001', 'binary-b'),
+            self.high('CVE-2026-10002', 'binary-a'),
+        ]
+        self.triage = {'schema_version': 1, 'distribution': 'debian', 'release': '13',
+                       'reviewed': '2026-11-20', 'review_due': '2026-12-04',
+                       'entries': {'CVE-2026-10001': 'source-one'}}
+
+    def high(self, cve, package):
+        return {**self.finding('HIGH', ''), 'VulnerabilityID': cve, 'PkgName': package,
+                'PkgID': package + '@1', 'Status': 'affected'}
+
+    def index_text(self, data=None):
+        return '<!-- trivy-triage:start -->\n```json\n' + json.dumps(
+            self.triage if data is None else data) + '\n```\n<!-- trivy-triage:end -->\n'
+
+    def test_grouping_counts_binaries_cves_and_sources_independently(self):
+        blocking, summary = evaluate(self.report, IMAGE_ID, self.triage)
+        self.assertEqual(blocking, 0)
+        self.assertTrue(summary.startswith('## Release image security gate: PASS'))
+        self.assertIn('**Blocking findings: 0**', summary)
+        self.assertIn('**3 package-level findings**', summary)
+        self.assertIn('**2 distinct CVEs**', summary)
+        self.assertIn('**1 Debian source packages**', summary)
+        self.assertEqual(sum(line.startswith('REVIEW HIGH |') for line in summary.splitlines()), 2)
+        self.assertIn('source-one (debian) | 2 | binary-a 1, binary-b 1', summary)
+        self.assertIn('HIGH | 0 | 3', summary)
+        self.assertIn('no patched package available for this Debian release', summary)
+        self.assertNotIn('no published fix', summary)
+        self.assertIn('**NOT TRIAGED:** CVE-2026-10002', summary)
+        self.assertIn('**1/2**', summary)
+
+    def test_changed_scan_changes_counts_and_does_not_use_document_as_inventory(self):
+        self.report['Results'][0]['Vulnerabilities'].pop()
+        _, summary = evaluate(self.report, IMAGE_ID, self.triage)
+        self.assertIn('**2 package-level findings**', summary)
+        self.assertIn('**1 distinct CVEs**', summary)
+        self.assertIn('HIGH | 0 | 2', summary)
+        self.assertNotIn('CVE-2026-10002', summary)
+        self.assertNotIn('NOT TRIAGED:', summary)
+
+    def test_documented_fixable_high_and_critical_still_block(self):
+        for severity in ('HIGH', 'CRITICAL'):
+            self.report['Results'][0]['Vulnerabilities'] = [
+                {**self.high('CVE-2026-10001', 'binary-a'), 'Severity': severity, 'FixedVersion': '2'}]
+            blocking, summary = evaluate(self.report, IMAGE_ID, self.triage)
+            self.assertEqual(blocking, 1)
+            self.assertTrue(summary.startswith('## Release image security gate: FAIL'))
+            self.assertIn('**Blocking findings: 1**', summary)
+            self.assertIn('BLOCK ' + severity, summary)
+            self.assertIn('patched version: 2', summary)
+            self.assertIn('DOCUMENTED', summary)
+
+    def test_source_and_release_scope_cannot_accidentally_mark_new_findings_triaged(self):
+        for triage in ({**self.triage, 'release': '14'},
+                       {**self.triage, 'entries': {'CVE-2026-10001': 'different-source'}}, None):
+            blocking, summary = evaluate(self.report, IMAGE_ID, triage)
+            self.assertEqual(blocking, 0)
+            self.assertIn('**NOT TRIAGED:** CVE-2026-10001, CVE-2026-10002', summary)
+            self.assertIn('**0/2**', summary)
+
+    def test_missing_source_metadata_is_explicitly_untriaged(self):
+        for package in self.report['Results'][0]['Packages']:
+            package.pop('SrcName')
+        _, summary = evaluate(self.report, IMAGE_ID, self.triage)
+        self.assertIn('source unavailable:', summary)
+        self.assertIn('**0 Debian source packages**', summary)
+        self.assertIn('**NOT TRIAGED:** CVE-2026-10001, CVE-2026-10002', summary)
+
+    def test_python_findings_never_claim_debian_fix_status_or_inherit_debian_triage(self):
+        self.report['Results'][0]['Vulnerabilities'] = []
+        self.report['Results'][1]['Vulnerabilities'] = [self.high('CVE-2026-10001', 'source-one')]
+        blocking, summary = evaluate(self.report, IMAGE_ID, self.triage)
+        self.assertEqual(blocking, 0)
+        self.assertIn('no patched version reported by Trivy; upstream status requires review', summary)
+        self.assertNotIn('no patched package available for this Debian release', summary)
+        self.assertIn('**NOT TRIAGED:** CVE-2026-10001', summary)
+
+    def test_missing_trivy_status_does_not_assert_patch_unavailability(self):
+        for finding in self.report['Results'][0]['Vulnerabilities']:
+            finding.pop('Status')
+        _, summary = evaluate(self.report, IMAGE_ID, self.triage)
+        self.assertIn('availability requires review', summary)
+        self.assertNotIn('no patched package available for this Debian release', summary)
+
+    def test_complete_counts_include_all_severities_and_both_package_types(self):
+        self.report['Results'][0]['Vulnerabilities'] = []
+        self.report['Results'][1]['Vulnerabilities'] = [
+            self.finding(severity, fixed) for severity in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN')
+            for fixed in ('', '2')]
+        blocking, summary = evaluate(self.report, IMAGE_ID)
+        self.assertEqual(blocking, 2)  # Fixable Medium/Low/Unknown remain nonblocking.
+        for severity in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'):
+            self.assertIn(f'{severity} | 1 | 1', summary)
+        self.assertIn('non-CVE High advisory IDs', summary)
+
+    def test_explicit_index_ignores_incidental_cve_mentions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'triage.md'
+            path.write_text('A future review might cover CVE-2026-10002\n' + self.index_text())
+            triage = read_triage(path)
+            self.assertEqual(triage, self.triage)
+            _, summary = evaluate(self.report, IMAGE_ID, triage)
+            self.assertIn('**NOT TRIAGED:** CVE-2026-10002', summary)
+            for invalid in ('CVE-2026-10001 mentioned without index', self.index_text() * 2,
+                            self.index_text({**self.triage, 'review_due': '2025-01-01'}),
+                            self.index_text({**self.triage, 'entries': {'CVE-2026-10001': ['source-one']}})):
+                path.write_text(invalid)
+                with self.assertRaises((ValueError, TypeError)):
+                    read_triage(path)
+
+    def test_cli_triage_failure_does_not_change_policy_or_leave_stale_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report, triage = root / 'scan.json', root / 'triage.md'
+            summary, receipt = root / 'summary.md', root / 'approved.json'
+            command = [sys.executable, str(Path(__file__).resolve().parents[1] / 'scripts/trivy_policy.py'),
+                       str(report), IMAGE_ID, '--summary', str(summary), '--receipt', str(receipt), '--triage', str(triage)]
+            for content in (None, 'malformed documentation'):
+                if content is not None:
+                    triage.write_text(content)
+                report.write_text(json.dumps(self.report))
+                result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('**NOT TRIAGED:** CVE-2026-10001, CVE-2026-10002', summary.read_text())
+                self.assertEqual(json.loads(receipt.read_text()), {
+                    'image_id': IMAGE_ID, 'policy': 'fixable-high-critical', 'trivy': '0.69.3'})
+            self.report['Results'][0]['Vulnerabilities'][0]['FixedVersion'] = '2'
+            report.write_text(json.dumps(self.report))
+            self.assertEqual(subprocess.run(command, capture_output=True, timeout=10).returncode, 1)
+            self.assertFalse(receipt.exists())
+            self.assertIn('**Blocking findings: 1**', summary.read_text())
+            report.write_text('{')
+            receipt.write_text('stale approval')
+            self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=10).returncode, 0)
+            self.assertFalse(receipt.exists())
+            self.assertIn('security gate: FAIL', summary.read_text())
+            self.assertIn('Blocking findings: unknown', summary.read_text())

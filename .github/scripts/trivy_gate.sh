@@ -5,6 +5,9 @@ image_id="${2:?Image ID required}"
 output="${3:?Output directory required}"
 mkdir -p "$output"
 rm -f "$output/approved.json"
+printf '%s\n' '## Release image security gate: FAIL' '' \
+  '**Blocking findings: unknown** — scan/database/policy evaluation did not complete. No release is approved.' \
+  > "$output/summary.md"
 test "$("$scanner" --version | head -n 1)" = 'Version: 0.69.3'
 # A fresh cache requires an available DB on every run; no silent stale-cache fallback.
 cache="$(mktemp -d)"
