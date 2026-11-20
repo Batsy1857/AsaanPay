@@ -1,0 +1,103 @@
+name: AWS OIDC smoke test
+
+# GitHub requires this file on the default branch to enable manual dispatch.
+# workflow_dispatch has no branch filter; the job guard restricts authentication.
+on:
+  push:
+    branches:
+      - feature/aws-cicd-devsecops
+    paths:
+      - .github/workflows/aws-oidc-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  authenticate:
+    if: ${{ github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    env:
+      ROLE_SESSION_NAME: AsaanPay-OIDC-${{ github.run_id }}-${{ github.run_attempt }}
+      AWS_PAGER: ""
+    steps:
+      - name: Authenticate to AWS with GitHub OIDC
+        id: aws-auth
+        # Official v6.3.0 tag and action.yml reviewed; Node.js 24 runtime.
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::642195693459:role/AsaanPay-GitHubActions-Role
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+          allowed-account-ids: "642195693459"
+          role-session-name: ${{ env.ROLE_SESSION_NAME }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 2
+
+      - name: Verify assumed role identity
+        run: |
+          aws sts get-caller-identity --output json > "$RUNNER_TEMP/aws-oidc-identity.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          identity = json.loads((Path(os.environ["RUNNER_TEMP"]) / "aws-oidc-identity.json").read_text())
+          expected_arn = (
+              "arn:aws:sts::642195693459:assumed-role/AsaanPay-GitHubActions-Role/"
+              + os.environ["ROLE_SESSION_NAME"]
+          )
+          if identity.get("Account") != "642195693459" or identity.get("Arn") != expected_arn:
+              raise SystemExit("FAIL: STS returned an unexpected account, role, or session.")
+          print("PASS: authenticated as " + expected_arn)
+          PY
+
+      - name: Diagnose OIDC claims after authentication failure
+        if: ${{ failure() && steps.aws-auth.outcome == 'failure' }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          expected_aud = "sts.amazonaws.com"
+          expected_sub = (
+              "repo:Batsy1857@206196925/AsaanPay@1461717305:"
+              "ref:refs/heads/feature/aws-cicd-devsecops"
+          )
+          try:
+              url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+              separator = "&" if "?" in url else "?"
+              request = urllib.request.Request(
+                  url + separator + urllib.parse.urlencode({"audience": expected_aud}),
+                  headers={"Authorization": "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]},
+              )
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  token = json.load(response)["value"]
+              # Decode only for diagnostics. STS performs signature/trust verification.
+              # Never print or persist the JWT, request credential, or other claims.
+              payload = token.split(".")[1]
+              claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+              actual = {key: claims.get(key) for key in ("aud", "sub")}
+          except Exception:
+              # Exception details could contain a URL or response; keep them out of logs.
+              raise SystemExit("OIDC claim diagnostics unavailable; inspect the authentication step error.") from None
+
+          print("Expected OIDC claims: " + json.dumps({"aud": expected_aud, "sub": expected_sub}))
+          print("Observed OIDC claims: " + json.dumps(actual))
+          if actual != {"aud": expected_aud, "sub": expected_sub}:
+              print("OIDC CLAIM MISMATCH: compare the repository OIDC subject configuration, "
+                    "repository/owner IDs, branch, and exact IAM trust conditions. Do not broaden trust.")
+          else:
+              print("Audience and subject match the supplied trust conditions. Inspect the original "
+                    "STS error, IAM OIDC provider, and actual role trust policy. Do not broaden trust.")
+          # The failed authentication step remains failed; diagnostics cannot turn the job green.
+          PY
