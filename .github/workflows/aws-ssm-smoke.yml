@@ -1,0 +1,159 @@
+name: AWS SSM connectivity smoke test
+
+# GitHub requires this file on the default branch to enable manual dispatch.
+# workflow_dispatch has no branch filter; the job guard restricts authentication.
+on:
+  push:
+    branches:
+      - feature/aws-cicd-devsecops
+    paths:
+      - .github/workflows/aws-ssm-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  connectivity:
+    if: ${{ github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: bash
+    env:
+      ROLE_SESSION_NAME: AsaanPay-SSM-${{ github.run_id }}-${{ github.run_attempt }}
+      EXPECTED_ACCOUNT_ID: "642195693459"
+      TARGET_INSTANCE: i-00fc050cde50b051e
+      AWS_PAGER: ""
+      AWS_CLI_AUTO_PROMPT: "off"
+      AWS_MAX_ATTEMPTS: "1"
+    steps:
+      - name: Authenticate to AWS with GitHub OIDC
+        # Reuse the reviewed v6.3.0 pin from aws-s3-smoke.yml; Node.js 24 runtime.
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::642195693459:role/AsaanPay-GitHubActions-Role
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+          allowed-account-ids: "642195693459"
+          role-session-name: ${{ env.ROLE_SESSION_NAME }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 2
+
+      - name: Verify assumed AWS account, role and session
+        run: |
+          set -euo pipefail
+          identity="$(aws sts get-caller-identity --query '[Account, Arn]' --output text)"
+          IFS=$'\t' read -r account arn <<< "$identity"
+          expected_arn="arn:aws:sts::${EXPECTED_ACCOUNT_ID}:assumed-role/AsaanPay-GitHubActions-Role/${ROLE_SESSION_NAME}"
+          if [[ "$account" != "$EXPECTED_ACCOUNT_ID" || "$arn" != "$expected_arn" ]]; then
+            echo "::error::STS returned an unexpected account, role or session; stopping before SSM access."
+            printf 'Expected account=%s ARN=%s\nObserved account=%s ARN=%s\n' \
+              "$EXPECTED_ACCOUNT_ID" "$expected_arn" "$account" "$arn"
+            exit 1
+          fi
+          printf 'PASS: authenticated as %s\n' "$arn"
+
+      - name: Run and verify the read-only SSM command
+        id: ssm
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import time
+          from uuid import UUID
+
+          instance = os.environ["TARGET_INSTANCE"]
+          command_id = "not returned"
+          status = "Not sent"
+          architecture = docker_version = "NOT VERIFIED"
+          passed = False
+          deadline = time.monotonic() + 180
+
+          def aws(operation, *arguments):
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise TimeoutError("SSM polling exceeded the 180-second deadline")
+              result = subprocess.run(
+                  ["aws", "ssm", operation, *arguments, "--region", "us-east-1", "--output", "json",
+                   "--cli-connect-timeout", "5", "--cli-read-timeout", "15"],
+                  check=True, capture_output=True, text=True, timeout=min(30, remaining),
+              )
+              return json.loads(result.stdout)
+
+          try:
+              response = aws(
+                  "send-command", "--instance-ids", instance, "--document-name", "AWS-RunShellScript",
+                  "--timeout-seconds", "60", "--comment", "AsaanPay read-only SSM connectivity smoke test",
+                  "--parameters", json.dumps({"commands": ["set -eu", "whoami", "uname -m", "sudo docker --version"],
+                                              "executionTimeout": ["60"]}),
+              )
+              command_id = response["Command"]["CommandId"]
+              if str(UUID(command_id)) != command_id:
+                  raise ValueError("SSM returned an invalid Command ID")
+              print("SSM Command ID: " + command_id, flush=True)
+              status = "Pending"
+              while True:
+                  try:
+                      invocation = aws("get-command-invocation", "--command-id", command_id,
+                                       "--instance-id", instance)
+                  except subprocess.CalledProcessError as error:
+                      # SSM is eventually consistent: retry only the known visibility delay.
+                      if "(InvocationDoesNotExist)" not in (error.stderr or ""):
+                          raise
+                      status = "InvocationDoesNotExist"
+                  else:
+                      if (invocation.get("CommandId") != command_id
+                              or invocation.get("InstanceId") != instance
+                              or invocation.get("DocumentName") != "AWS-RunShellScript"):
+                          raise ValueError("SSM returned an unexpected command, instance or document")
+                      status = invocation.get("Status", "Missing status")
+                      if status not in ("Pending", "InProgress", "Delayed"):
+                          # Print only diagnostic fields for the three fixed read-only commands.
+                          print(json.dumps({key: invocation.get(key) for key in (
+                              "Status", "StatusDetails", "ResponseCode", "StandardOutputContent", "StandardErrorContent"
+                          )}), flush=True)
+                          if status != "Success" or invocation.get("ResponseCode") != 0:
+                              raise ValueError("SSM execution did not succeed: " + str(status))
+                          lines = [line.strip() for line in invocation.get("StandardOutputContent", "").splitlines()
+                                   if line.strip()]
+                          architecture = "PASS" if len(lines) >= 3 and lines[1] == "x86_64" else "FAIL"
+                          docker_version = "PASS" if any(re.match(r"^Docker version [0-9]+\.[0-9]+\.[0-9]+\b", line)
+                                                        for line in lines[2:]) else "FAIL"
+                          if architecture != "PASS" or docker_version != "PASS":
+                              raise ValueError("Command output did not verify x86_64 and a Docker version")
+                          passed = True
+                          break
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0:
+                      raise TimeoutError("SSM polling exceeded the 180-second deadline")
+                  time.sleep(min(5, remaining))
+          except (TimeoutError, subprocess.TimeoutExpired) as error:
+              status = "Local timeout (last observed: " + str(status) + ")"
+              raise SystemExit("FAIL: " + str(error)) from None
+          except subprocess.CalledProcessError as error:
+              status = "AWS CLI failure (last observed: " + str(status) + ")"
+              # Keep the precise AWS error; never print credentials or environment variables.
+              raise SystemExit("FAIL: AWS CLI error: " + (error.stderr or "No stderr returned")) from None
+          finally:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write("## SSM connectivity smoke test\n\n"
+                                f"Target instance: {instance}\n\nCommand ID: {command_id}\n\n"
+                                f"Command status: {status}\n\nArchitecture x86_64: {architecture}\n\n"
+                                f"Docker version: {docker_version}\n\n"
+                                f"Verification: {'PASS' if passed else 'FAIL'}\n")
+          print("PASS: SSM connectivity, x86_64 architecture and Docker version verified")
+          PY
+
+      - name: Summarize authentication or identity failure
+        if: ${{ always() && steps.ssm.outcome == 'skipped' }}
+        run: |
+          {
+            printf '## SSM connectivity smoke test\n\nTarget instance: %s\n\n' "$TARGET_INSTANCE"
+            printf 'Command status: Not sent\n\nVerification: NOT VERIFIED; an earlier step did not succeed.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
