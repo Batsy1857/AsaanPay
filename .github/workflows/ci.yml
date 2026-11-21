@@ -354,3 +354,70 @@ jobs:
           path: ${{ env.RELEASE_WORK }}/security/
           retention-days: 90 # Subject to the repository/organization retention limit.
           if-no-files-found: warn
+
+  publish-release:
+    name: Publish verified release to private S3
+    needs: [build-release]
+    if: ${{ github.event_name == 'push' && github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      ROLE_SESSION_NAME: AsaanPay-Publish-${{ github.run_id }}-${{ github.run_attempt }}
+      AWS_PAGER: ""
+      AWS_CLI_AUTO_PROMPT: "off"
+    steps:
+      - name: Check out the exact workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Identify the single expected release artifact
+        id: expected
+        run: python scripts/publish_release.py prepare
+
+      - name: Download the exact artifact from this workflow run
+        # Official v8 tag and action.yml reviewed; Node.js 24, digest mismatch fails.
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ steps.expected.outputs.artifact-name }}
+          path: ${{ runner.temp }}/asaanpay-publish-package
+          digest-mismatch: error
+          # No token/repository/run-id override: download only from the current run.
+
+      - name: Validate package and current run identity before AWS authentication
+        run: python scripts/publish_release.py check "$RUNNER_TEMP/asaanpay-publish-package"
+
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::642195693459:role/AsaanPay-GitHubActions-Role
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+          allowed-account-ids: "642195693459"
+          role-session-name: ${{ env.ROLE_SESSION_NAME }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 2
+
+      - name: Verify STS identity, conditionally upload and verify S3 package
+        id: publish
+        run: python scripts/publish_release.py publish "$RUNNER_TEMP/asaanpay-publish-package"
+
+      - name: Report publication verification result
+        if: ${{ always() }}
+        env:
+          PUBLISH_RESULT: ${{ steps.publish.outcome }}
+        run: python scripts/publish_release.py summary
