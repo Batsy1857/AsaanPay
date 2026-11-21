@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT))
 from app.version import make_metadata, public_version, validate_metadata  # noqa: E402
 
 PLATFORM = "linux/amd64"
+DEPLOYMENT_FILES = ("compose.prod.yaml", "db/schema.sql")
+PACKAGE_FILES = tuple(sorted(("image.tar.gz", "manifest.json", *DEPLOYMENT_FILES)))
 
 
 def require(condition, message):
@@ -128,7 +130,8 @@ def wait_for(probe, description):
 
 
 @contextmanager
-def stack(image_id, *, test_mounts=False):
+def stack(image_id, *, test_mounts=False, schema=None, db_image="postgres:17-alpine"):
+    schema = ROOT / "db/schema.sql" if schema is None else schema
     # UUID-owned resources, no named/anonymous database volume and no .env loading.
     name = "asaanpay-smoke-" + uuid4().hex
     db, api = name + "-db", name + "-api"
@@ -140,9 +143,9 @@ def stack(image_id, *, test_mounts=False):
         created.append(("network", name))
         docker("create", "--name", db, "--network", name, "--network-alias", "db",
                "--tmpfs", "/var/lib/postgresql/data:rw",
-               "--mount", f"type=bind,src={ROOT / 'db/schema.sql'},dst=/docker-entrypoint-initdb.d/001-schema.sql,readonly",
+               "--mount", f"type=bind,src={schema},dst=/docker-entrypoint-initdb.d/001-schema.sql,readonly",
                "--env", "POSTGRES_USER=asaanpay_smoke", "--env", "POSTGRES_DB=asaanpay_smoke",
-               "--env", "POSTGRES_PASSWORD", "postgres:17-alpine", env=environment)
+               "--env", "POSTGRES_PASSWORD", "--platform", PLATFORM, db_image, env=environment)
         created.append(("container", db))
         docker("start", db)
         wait_for(lambda: docker("exec", db, "pg_isready", "-U", "asaanpay_smoke", "-d", "asaanpay_smoke")
@@ -248,16 +251,30 @@ def validate_manifest(manifest):
 
 
 def check_checksums(directory):
-    require({path.name for path in directory.iterdir()} == {"manifest.json", "image.tar.gz", "SHA256SUMS"},
-            "Release package must contain exactly three files")
+    require(directory.is_dir() and not directory.is_symlink(), "Invalid package directory")
+    expected = set(PACKAGE_FILES) | {"SHA256SUMS"}
+    found = set()
+    pending = [directory]
+    while pending:
+        for path in pending.pop().iterdir():
+            name = path.relative_to(directory).as_posix()
+            require(not path.is_symlink(), f"Symlink in release package: {name}")
+            if path.is_dir():
+                require(name == "db", f"Unexpected package directory: {name}")
+                pending.append(path)
+            else:
+                require(name in expected and path.is_file(), f"Unexpected package file: {name}")
+                found.add(name)
+    require(found == expected, "Missing release package files")
     entries = {}
     for line in (directory / "SHA256SUMS").read_text().splitlines():
-        match = re.fullmatch(r"([0-9a-f]{64})  (image\.tar\.gz|manifest\.json)", line)
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
         require(match is not None, "Malformed checksum line or unsafe filename")
         checksum, name = match.groups()
+        require(name in PACKAGE_FILES, "Unexpected checksum entry or unsafe path")
         require(name not in entries, "Duplicate checksum entry")
         entries[name] = checksum
-    require(set(entries) == {"manifest.json", "image.tar.gz"}, "Missing checksum entry")
+    require(set(entries) == set(PACKAGE_FILES), "Missing checksum entry")
     for name, checksum in entries.items():
         require(not (directory / name).is_symlink() and digest(directory / name) == checksum, f"Checksum mismatch: {name}")
     manifest = json.loads((directory / "manifest.json").read_text())
@@ -275,6 +292,13 @@ def package(args, state):
             "Missing/mismatched security approval")
     destination = args.output / ("asaanpay-release-" + state["metadata"]["release_id"])
     destination.mkdir(parents=True, exist_ok=False)
+    for name in DEPLOYMENT_FILES:
+        source = ROOT / name
+        require(not source.is_symlink() and not source.parent.is_symlink() and source.is_file(),
+                f"Invalid deployment source: {name}")
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
     archive = destination / "image.tar.gz"
     # Save by the verified unique tag so docker load restores that tag as well as the ID.
     with tempfile.TemporaryDirectory(prefix="asaanpay-export-") as temporary:
@@ -289,20 +313,90 @@ def package(args, state):
                 "source_dirty": state["source_dirty"]}
     write_json(destination / "manifest.json", manifest)
     (destination / "SHA256SUMS").write_text("".join(
-        f"{digest(destination / name)}  {name}\n" for name in ("image.tar.gz", "manifest.json")))
+        f"{digest(destination / name)}  {name}\n" for name in PACKAGE_FILES), encoding="utf-8")
     check_checksums(destination)
     print(destination)
 
 
+def validate_deployment(directory, manifest):
+    # Compose config only renders/validates; it never starts production services.
+    # Do not inherit application secrets, COMPOSE_FILE or interpolation overrides.
+    environment = {key: os.environ[key] for key in ("PATH", "HOME", "DOCKER_CONFIG") if key in os.environ}
+    environment.update(POSTGRES_USER="asaanpay_validation", POSTGRES_DB="asaanpay_validation",
+                       POSTGRES_PASSWORD="dummy-validation-only", ASAANPAY_IMAGE=manifest["image"])
+    config = json.loads(docker("compose", "--env-file", "/dev/null", "--project-directory",
+                               str(directory.resolve()), "-f", str((directory / "compose.prod.yaml").resolve()),
+                               "config", "--format", "json", env=environment))
+    services = config["services"]
+    require(config.get("name") == "asaanpay", "Unexpected Compose project name")
+    require(set(services) == {"api", "db"}, "Unexpected deployment services")
+    require(all("build" not in service for service in services.values()), "Deployment must not build images")
+    require(services["api"]["image"] == manifest["image"], "Compose image differs from release identity")
+    require(all(service.get("platform", PLATFORM) == PLATFORM for service in services.values()),
+            "Wrong deployment platform")
+    # Normalize absent/null/empty defaults without accepting host namespace sharing.
+    for name, service in services.items():
+        require(not service.get("privileged") and not service.get("cap_add"),
+                f"Privileged service or added capabilities: {name}")
+        for field, allowed in (("network_mode", (None, "", "default", "bridge", "none")),
+                               ("pid", (None, "", "private")),
+                               ("ipc", (None, "", "private", "shareable"))):
+            require(service.get(field) in allowed, f"Unsafe {field}: {name}")
+        for field in ("devices", "device_cgroup_rules", "gpus", "use_api_socket", "volumes_from",
+                      "tmpfs", "configs", "secrets", "pre_start", "post_start", "pre_stop"):
+            require(not service.get(field), f"Unexpected {field}: {name}")
+        resources = (service.get("deploy") or {}).get("resources") or {}
+        reservations = resources.get("reservations") or {}
+        require(not reservations.get("devices"), f"Unexpected device reservations: {name}")
+    for network in (config.get("networks") or {}).values():
+        network = network or {}
+        require(network.get("driver") in (None, "", "bridge") and not network.get("external")
+                and not network.get("driver_opts"), "Deployment requires managed bridge networks")
+    require(not services["db"].get("ports"), "Database must not publish host ports")
+    ports = services["api"].get("ports") or []
+    require(len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
+            and str(ports[0].get("target")) == "8000"
+            and str(ports[0].get("published")) == "8000"
+            and ports[0].get("protocol", "tcp") == "tcp",
+            "API must publish only 127.0.0.1:8000:8000/tcp")
+    volumes = config.get("volumes") or {}
+    require(set(volumes) == {"postgres_data"}, "Unexpected deployment volumes")
+    volume = volumes["postgres_data"] or {}
+    require(volume.get("name") == "asaanpay_postgres_data"
+            and volume.get("driver") in (None, "", "local")
+            and not volume.get("driver_opts") and not volume.get("external"),
+            "Database requires the managed asaanpay_postgres_data volume without driver options")
+    require(not services["api"].get("volumes"), "API must not mount host files or volumes")
+    db_mounts = services["db"].get("volumes") or []
+    data_mounts = [mount for mount in db_mounts if mount.get("target") == "/var/lib/postgresql/data"]
+    require(len(db_mounts) == 2 and len(data_mounts) == 1
+            and data_mounts[0].get("type") == "volume"
+            and data_mounts[0].get("source") == "postgres_data"
+            and not data_mounts[0].get("read_only")
+            and not (data_mounts[0].get("volume") or {}).get("subpath"),
+            "Database must mount its persistent data volume and only the packaged schema")
+    schema_mounts = [mount for mount in services["db"].get("volumes", [])
+                     if mount["target"] == "/docker-entrypoint-initdb.d/001-schema.sql"]
+    require(len(schema_mounts) == 1 and schema_mounts[0]["type"] == "bind"
+            and schema_mounts[0].get("read_only") is True
+            and schema_mounts[0]["source"] == str((directory / "db/schema.sql").resolve()),
+            "Compose must mount the packaged schema read-only")
+    db_image = services["db"]["image"]
+    require(re.fullmatch(r"postgres:17-alpine(?:@sha256:[0-9a-f]{64})?", db_image),
+            "Unsupported deployment database image")
+    return db_image
+
+
 def verify(directory):
     manifest = check_checksums(directory)
+    db_image = validate_deployment(directory, manifest)
     # Docker itself consumes the compressed archive; no source checkout/build is used.
     docker("load", "--input", str(directory / "image.tar.gz"), timeout=600)
     state = {"metadata": validate_manifest(manifest), "image": manifest["image"], "image_id": manifest["image_id"]}
     check_image(state)
-    with stack(state["image_id"]) as (base, db, _api):
+    with stack(state["image_id"], schema=(directory / "db/schema.sql").resolve(), db_image=db_image) as (base, db, _api):
         exercise(base, db, state["metadata"])
-    print(f"PASS: checksums, docker load, image ID/platform/labels/file and HTTP metadata: {manifest['image_id']}")
+    print(f"PASS: checksums, packaged Compose/schema, docker load, image ID/platform/labels/file and HTTP metadata: {manifest['image_id']}")
 
 
 def main():
