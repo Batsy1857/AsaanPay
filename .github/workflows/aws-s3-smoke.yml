@@ -1,0 +1,127 @@
+name: AWS S3 upload smoke test
+
+# GitHub requires this file on the default branch to enable manual dispatch.
+# workflow_dispatch has no branch filter; the job guard restricts authentication.
+on:
+  push:
+    branches:
+      - feature/aws-cicd-devsecops
+    paths:
+      - .github/workflows/aws-s3-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  upload-and-verify:
+    if: ${{ github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    env:
+      ROLE_SESSION_NAME: AsaanPay-S3-${{ github.run_id }}-${{ github.run_attempt }}
+      EXPECTED_ACCOUNT_ID: "642195693459"
+      S3_BUCKET: asaanpay-releases
+      AWS_PAGER: ""
+      AWS_CLI_AUTO_PROMPT: "off"
+    steps:
+      - name: Authenticate to AWS with GitHub OIDC
+        # Reuse the reviewed v6.3.0 pin from aws-oidc-smoke.yml; Node.js 24 runtime.
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::642195693459:role/AsaanPay-GitHubActions-Role
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+          allowed-account-ids: "642195693459"
+          role-session-name: ${{ env.ROLE_SESSION_NAME }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 2
+
+      - name: Verify assumed AWS account, role and session
+        run: |
+          set -euo pipefail
+          identity="$(aws sts get-caller-identity --query '[Account, Arn]' --output text)"
+          IFS=$'\t' read -r account arn <<< "$identity"
+          expected_arn="arn:aws:sts::${EXPECTED_ACCOUNT_ID}:assumed-role/AsaanPay-GitHubActions-Role/${ROLE_SESSION_NAME}"
+          if [[ "$account" != "$EXPECTED_ACCOUNT_ID" || "$arn" != "$expected_arn" ]]; then
+            echo "::error::STS returned an unexpected account, role or session; stopping before S3 access."
+            printf 'Expected account=%s ARN=%s\nObserved account=%s ARN=%s\n' \
+              "$EXPECTED_ACCOUNT_ID" "$expected_arn" "$account" "$arn"
+            exit 1
+          fi
+          printf 'PASS: authenticated as %s\n' "$arn"
+
+      - name: Upload, download and verify SHA-256
+        run: |
+          set -euo pipefail
+          aws --version
+          work_dir="$(mktemp -d "$RUNNER_TEMP/asaanpay-s3-smoke.XXXXXX")"
+          original="$work_dir/original.txt"
+          downloaded="$work_dir/downloaded.txt"
+          # Run IDs distinguish runs; attempts distinguish reruns; keep the full commit SHA.
+          key="releases/smoke-tests/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}.txt"
+          printf 'AsaanPay S3 smoke test\ncommit_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$original"
+          original_sha256="$(sha256sum "$original")"
+          original_sha256="${original_sha256%% *}"
+
+          {
+            printf '## AWS S3 smoke test\n\n'
+            printf 'Object: s3://%s/%s\n\n' "$S3_BUCKET" "$key"
+            printf 'Original SHA-256: %s\n\n' "$original_sha256"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          s3_request() {
+            local operation="$1"
+            local error_file="$work_dir/$1-error.txt"
+            local status
+            shift
+            if aws s3api "$operation" \
+              --bucket "$S3_BUCKET" \
+              --key "$key" \
+              --expected-bucket-owner "$EXPECTED_ACCOUNT_ID" \
+              "$@" > /dev/null 2> "$error_file"; then
+              return 0
+            else
+              status=$?
+            fi
+            # Preserve AWS's exact error/code, including any denied S3 or KMS action.
+            cat "$error_file" >&2
+            printf '::error::S3 %s failed for s3://%s/%s (AWS CLI exit %s). See the exact error above.\n' \
+              "$operation" "$S3_BUCKET" "$key" "$status"
+            {
+              printf 'FAIL: %s (AWS CLI exit %s). Exact AWS CLI error:\n\n~~~text\n' "$operation" "$status"
+              cat "$error_file"
+              printf '\n~~~\n\nStopped without changing IAM or bucket policies.\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            return "$status"
+          }
+
+          # Require a conditional write. An old CLI or a 409/412 fails; never retry unconditionally.
+          # Use only PutObject/GetObject: no listing, ACLs, tags, version IDs or policy changes.
+          s3_request put-object \
+            --body "$original" \
+            --content-type 'text/plain; charset=utf-8' \
+            --if-none-match '*'
+          printf 'Upload succeeded; the object is retained as evidence.\n\n' >> "$GITHUB_STEP_SUMMARY"
+
+          s3_request get-object "$downloaded"
+          downloaded_sha256="$(sha256sum "$downloaded")"
+          downloaded_sha256="${downloaded_sha256%% *}"
+          printf 'Original SHA-256:   %s\nDownloaded SHA-256: %s\n' "$original_sha256" "$downloaded_sha256"
+          if [[ "$original_sha256" != "$downloaded_sha256" ]]; then
+            echo "::error::The downloaded object's SHA-256 does not match the original."
+            printf 'FAIL: SHA-256 mismatch. Downloaded SHA-256: %s.\n' "$downloaded_sha256" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          printf 'PASS: uploaded and retrieved s3://%s/%s with matching SHA-256.\n' "$S3_BUCKET" "$key"
+          {
+            printf 'Downloaded SHA-256: %s\n\n' "$downloaded_sha256"
+            printf 'PASS: upload, retrieval and SHA-256 comparison succeeded. The S3 object is retained.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
