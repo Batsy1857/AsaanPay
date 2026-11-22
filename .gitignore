@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 .coverage
 htmlcov/
+app/release.json
+release-output/

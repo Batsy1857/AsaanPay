@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.checkouts import router
 from app.storage import StorageError, recover_unfinished
+from app.version import public_version, read_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,11 @@ async def health(request: Request):
             content={"status": "unhealthy", "database": "unavailable"},
         )
     return {"status": "ok", "database": "connected"}
+
+
+@app.get("/api/version")
+async def version():
+    try:
+        return public_version(read_metadata())
+    except ValueError:
+        return JSONResponse(status_code=503, content={"detail": "Release metadata is invalid"})

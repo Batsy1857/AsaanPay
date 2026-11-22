@@ -1,0 +1,35 @@
+{
+  "approval": {
+    "review_reference": "ASAANPAY-M7E5C2-20261122",
+    "reviewer": "Sadiq"
+  },
+  "commissioned": true,
+  "contract": {
+    "baseline_release_id": "1.0.4-g199075bd385a9bf8715d77741a1a3ff519157e44-r44927697393-a1",
+    "checker_sha256": "0657e6d493549b0a85f1db491f2c25ee787d836f0874c9be8c0efe5bcaee1201",
+    "database_service_sha256": "e9dba47c438b670a1dd463db45f3c81811026dd8861b8f6479c69c68d93ef91e",
+    "dependency_sha256": {
+      "app/__init__.py": "77159cc35ff868bd4d5123695444a79048bac148545594f2be291b11555ada78",
+      "app/version.py": "8659769c6fb97450666e74d290651fae18c6a215127706c4161d13afb7d90772",
+      "scripts/release.py": "09f1c13d480cbb8d1106e5fa9e7c905792df58fe5e1840bad2ee17b6e358f8bc",
+      "scripts/ssm_deploy.py": "22b979d3249f172b87999120d4b076675c52d567a13e99c9a9cf7c7f1fb5c319"
+    },
+    "id": "asaanpay-fixed-schema-demo-v1",
+    "live_schema_sha256": "be3f0924ade20c8ff8f185f4197a7c1f8b3f22343ce4b211beec0fa1f491eed4",
+    "networks_sha256": "93ac4313a563a451a83aa18772f4fd3dea228e86608a687ffd9643ac7b262920",
+    "no_database_changes": true,
+    "postgres_image": "postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32",
+    "required_checks": [
+      "package_contract",
+      "image_identity",
+      "startup_health",
+      "existing_record",
+      "checkout_replay_persistence",
+      "startup_recovery",
+      "schema_unchanged"
+    ],
+    "schema_sha256": "3c3441674069ae46ea5b58d184971aa5ff2f5cc380faf0dcd68d277186c305da",
+    "volumes_sha256": "989b7d89dc329270c5a683e9aa6d054774f6299f872926751087d5cae3d5a130"
+  },
+  "schema_version": 1
+}

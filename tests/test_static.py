@@ -25,7 +25,7 @@ class StaticTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("text/html", response.headers["content-type"])
                 self.assertIn('id="checkout-form"', response.text)
-                for filename, content_type in (("styles.css", "text/css"), ("core.js", "javascript"), ("app.js", "javascript")):
+                for filename, content_type in (("styles.css", "text/css"), ("core.js", "javascript"), ("app.js", "javascript"), ("version.js", "javascript")):
                     response = client.get("/static/" + filename)
                     self.assertEqual(response.status_code, 200)
                     self.assertIn(content_type, response.headers["content-type"])

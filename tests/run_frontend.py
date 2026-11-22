@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
             "/tests/frontend.html": "tests/frontend.html",
             "/tests/frontend_tests.js": "tests/frontend_tests.js",
             "/tests/fixtures/timing_traces.json": "tests/fixtures/timing_traces.json",
-            **{"/static/" + name: "app/static/" + name for name in ("app.js", "core.js", "styles.css")},
+            **{"/static/" + name: "app/static/" + name for name in ("app.js", "core.js", "version.js", "styles.css")},
         }
         if self.command != "GET" or path not in files:
             self.send_error(404)
