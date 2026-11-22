@@ -264,6 +264,8 @@ jobs:
             --progress-spinner off --timeout 30 --format json --desc off --aliases on
 
   build-release:
+    outputs:
+      release-id: ${{ steps.build.outputs.release-id }}
     name: Versioned image, Trivy and release artifact
     needs: [tests, bandit, gitleaks, pip-audit]
     runs-on: ubuntu-24.04
@@ -290,6 +292,7 @@ jobs:
         run: python -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
       - name: Build the linux/amd64 release image once
+        id: build
         env:
           BUILD_COMMIT: ${{ github.sha }}
           BUILD_RUN_ID: ${{ github.run_id }}
@@ -307,6 +310,8 @@ jobs:
           state = json.loads((Path(os.environ["RELEASE_WORK"]) / "state.json").read_text())
           with open(os.environ["GITHUB_ENV"], "a") as output:
               output.write(f"RELEASE_ID={state['metadata']['release_id']}\nIMAGE_ID={state['image_id']}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"release-id={state['metadata']['release_id']}\n")
           PY
 
       - name: Install checksum-verified Trivy 0.69.3
@@ -356,6 +361,9 @@ jobs:
           if-no-files-found: warn
 
   publish-release:
+    outputs:
+      release-id: ${{ steps.publication-proof.outputs.release-id }}
+      marker-sha256: ${{ steps.publication-proof.outputs.marker-sha256 }}
     name: Publish verified release to private S3
     needs: [build-release]
     if: ${{ github.event_name == 'push' && github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
@@ -416,8 +424,108 @@ jobs:
         id: publish
         run: python scripts/publish_release.py publish "$RUNNER_TEMP/asaanpay-publish-package"
 
+      - name: Record exact successful publication for deployment
+        id: publication-proof
+        env:
+          BUILT_RELEASE_ID: ${{ needs.build-release.outputs.release-id }}
+        run: python scripts/deploy_pipeline.py publication-proof "$RUNNER_TEMP/asaanpay-publish-package"
+
       - name: Report publication verification result
         if: ${{ always() }}
         env:
           PUBLISH_RESULT: ${{ steps.publish.outcome }}
         run: python scripts/publish_release.py summary
+
+
+  deploy-production:
+    name: Commissioned application-only EC2 deployment
+    needs: [publish-release]
+    if: ${{ needs.publish-release.result == 'success' && github.event_name == 'push' && github.repository == 'Batsy1857/AsaanPay' && github.ref == 'refs/heads/feature/aws-cicd-devsecops' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: asaanpay-production-deployment
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      # TEMPORARY COMMISSIONING GATE. Change only after the documented target,
+      # policy and baseline approvals. No dispatch/manual approval after enabling.
+      PRODUCTION_DEPLOYMENT_ENABLED: "true"
+      PUBLISHED_RELEASE_ID: ${{ needs.publish-release.outputs.release-id }}
+      PUBLICATION_SHA256: ${{ needs.publish-release.outputs.marker-sha256 }}
+      PUBLICATION_RESULT: ${{ needs.publish-release.result }}
+      ROLE_SESSION_NAME: AsaanPay-Deploy-${{ github.run_id }}-${{ github.run_attempt }}
+      PYTHONDONTWRITEBYTECODE: "1"
+      AWS_PAGER: ""
+      AWS_CLI_AUTO_PROMPT: "off"
+      AWS_MAX_ATTEMPTS: "1"
+    steps:
+      - name: Check out the exact pipeline commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Pin Compose to the reviewed EC2 renderer
+        run: |
+          # Keep contract rendering identical to EC2, including bind defaults.
+          compose_binary="$RUNNER_TEMP/docker-compose-2.40.3"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 180 \
+            https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-x86_64 \
+            --output "$compose_binary"
+          printf '%s  %s\n' dba9d98e1ba5bfe11d88c99b9bd32fc4a0624a30fafe68eea34d61a3e42fd372 "$compose_binary" | sha256sum --check --strict
+          sudo install -D -m 0755 "$compose_binary" /usr/local/lib/docker/cli-plugins/docker-compose
+          test "$(docker compose version --short)" = '2.40.3'
+          # The contract renderer deliberately runs without HOME or Docker config.
+          test "$(env -i PATH="$PATH" docker compose version --short)" = '2.40.3'
+
+      - name: Download only this run's published release artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: asaanpay-release-${{ needs.publish-release.outputs.release-id }}
+          path: ${{ runner.temp }}/asaanpay-deployment-package
+          digest-mismatch: error
+
+      - name: Validate same-run identity and report the commissioning gate
+        run: python scripts/deploy_pipeline.py prepare "$RUNNER_TEMP/asaanpay-deployment-package"
+
+      - name: Require approved contract and real CI compatibility evidence
+        if: ${{ env.PRODUCTION_DEPLOYMENT_ENABLED == 'true' }}
+        run: python scripts/deploy_pipeline.py authorize "$RUNNER_TEMP/asaanpay-deployment-package"
+
+      - name: Authenticate to AWS with GitHub OIDC
+        if: ${{ env.PRODUCTION_DEPLOYMENT_ENABLED == 'true' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::642195693459:role/AsaanPay-GitHubActions-Role
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+          allowed-account-ids: "642195693459"
+          role-session-name: ${{ env.ROLE_SESSION_NAME }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 2
+
+      - name: Verify publication and execute the supervised deployment
+        if: ${{ env.PRODUCTION_DEPLOYMENT_ENABLED == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/deploy_pipeline.py execute "$RUNNER_TEMP/asaanpay-deployment-package"
+
+      - name: Report job failure or cancellation
+        if: ${{ failure() || cancelled() }}
+        run: |
+          printf '%s\n' 'Deployment job failed or was cancelled. Health is NOT VERIFIED unless a success receipt was recorded.' \
+            'If SSM was sent, inspect its reported Command ID and the bounded systemd unit before retrying.' >> "$GITHUB_STEP_SUMMARY"

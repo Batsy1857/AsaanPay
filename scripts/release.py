@@ -130,7 +130,7 @@ def wait_for(probe, description):
 
 
 @contextmanager
-def stack(image_id, *, test_mounts=False, schema=None, db_image="postgres:17-alpine"):
+def stack(image_id, *, test_mounts=False, schema=None, db_image="postgres:17-alpine", before_api=None):
     schema = ROOT / "db/schema.sql" if schema is None else schema
     # UUID-owned resources, no named/anonymous database volume and no .env loading.
     name = "asaanpay-smoke-" + uuid4().hex
@@ -150,6 +150,8 @@ def stack(image_id, *, test_mounts=False, schema=None, db_image="postgres:17-alp
         docker("start", db)
         wait_for(lambda: docker("exec", db, "pg_isready", "-U", "asaanpay_smoke", "-d", "asaanpay_smoke")
                  and query(db, "SELECT count(*) FROM payment_attempts") == "0", "initialized PostgreSQL")
+        if before_api is not None:
+            before_api(db)  # Compatibility fixtures are seeded before candidate startup.
         mounts = []
         if test_mounts:
             for folder in ("tests", "scripts"):
@@ -193,7 +195,7 @@ def query(db, sql):
                   "-d", "asaanpay_smoke", "-Atc", sql)
 
 
-def exercise(base, db, metadata):
+def exercise(base, db, metadata, *, existing_rows=0):
     require(json.loads(http(base, "/api/health")[2]) == {"status": "ok", "database": "connected"}, "Unhealthy API")
     require(json.loads(http(base, "/api/version")[2]) == public_version(metadata), "Version endpoint mismatch")
     for path, content_type, marker in (("/", "text/html", b'id="checkout-form"'),
@@ -217,8 +219,8 @@ def exercise(base, db, metadata):
     require(json.loads(http(base, "/api/checkouts/" + attempt_id)[2])["state"] == "SUCCEEDED", "Stored GET failed")
     replay_status, _, replay = http(base, "/api/checkouts", payload=payment, key=key)
     require(replay_status == 200 and json.loads(replay)["id"] == attempt_id, "Idempotent replay failed")
-    require(query(db, "SELECT count(*) FROM payment_attempts") == "1", "Replay created an extra record")
-    print("PASS: initialized empty PostgreSQL, health, version, checkout/assets, persisted SUCCEEDED and replay")
+    require(query(db, "SELECT count(*) FROM payment_attempts") == str(existing_rows + 1), "Replay created an extra record")
+    print("PASS: PostgreSQL, health, version, checkout/assets, persisted SUCCEEDED and replay")
 
 
 def smoke(args, state):

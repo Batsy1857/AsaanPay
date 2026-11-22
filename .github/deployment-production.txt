@@ -1,0 +1,167 @@
+M7E.5B.2 — fixed-schema automatic course demonstration (NOT COMMISSIONED)
+
+Scope and current gate
+----------------------
+The existing push → tests/scans → build once → verified immutable S3 publication
+→ deploy-production flow is retained. Production execution is still the literal
+"false" in ci.yml; deployment-policy.json still has commissioned=false and no
+approval/contract. Do not enable either flag to bypass missing evidence.
+Brief API downtime and explicit manual recovery are acceptable. No migrations,
+database recreation, volume deletion, automatic rollback or HA machinery is added.
+
+Fixed demonstration contract
+-----------------------------
+The reviewed policy must contain schema_version=1, commissioned=true, an approval
+object with reviewer/review_reference, and contract fields:
+  id, baseline_release_id, no_database_changes=true
+  schema_sha256, postgres_image (the exact existing digest-pinned PostgreSQL image)
+  database_service_sha256, networks_sha256, volumes_sha256
+  live_schema_sha256 (reviewed EC2 measurement, NOT inferred from init SQL)
+  checker_sha256 (scripts/demo_compatibility.py)
+  dependency_sha256: an exact map for these four reviewed files:
+    app/__init__.py, app/version.py, scripts/release.py, scripts/ssm_deploy.py
+  required_checks, exactly in this order:
+    package_contract, image_identity, startup_health, existing_record,
+    checkout_replay_persistence, startup_recovery, schema_unchanged
+
+No approved values are fabricated by the repository. Hash the exact reviewed
+bytes; the inline seed fixtures are covered by the checker hash. The checker
+verifies its local import closure before importing it. A scripts/__init__.py is
+not supported without expanding and reviewing that closure. No third-party
+Python dependencies are required by the checker or host bootstrap.
+
+contract_facts() in ssm_deploy.py hashes normalized database/network/volume
+configuration. Only credential values, the package-relative schema source,
+omitted defaults and the known Compose dollar-escaping difference in the database
+health probe are normalized. Review actual CI and Compose 2.40.3 outputs together.
+All other database configuration changes block automatic deployment.
+
+scripts/demo_compatibility.py --package PACKAGE --policy POLICY --output NEW_FILE
+loads the exact verified candidate image (never builds it), starts UUID-owned
+PostgreSQL/API resources, seeds a completed payment and an unfinished attempt,
+tests startup/health, existing-record reads, checkout persistence and idempotent
+replay, then checks the schema is unchanged. Startup recovery intentionally marks
+unfinished attempts ERROR; this is part of the reviewed demo behavior. Cleanup
+must succeed before evidence is emitted. No production data is used as a fixture.
+
+Evidence is JSON: schema_version=1, passed=true, release_id, image_id,
+policy_sha256, contract_id, live_schema_sha256 and checks mapping every required
+check to boolean true. It binds the candidate to the approved policy and actual
+executed assertions. It is not an independent signed attestation: reviewed branch
+code, the runner and authorized SSM callers remain trusted. Source/helper changes
+require review and corresponding approved hashes; ordinary API-only changes do not
+require per-release manual approval. Keep workflow/checker changes review-protected.
+
+Live preflight and M7E.5A authorization
+--------------------------------------
+SCHEMA_SQL in ssm_deploy.py runs one bounded READ ONLY transaction with fixed
+search_path, 5s statement timeout and 2s lock timeout; Docker/psql has a 15s limit.
+It inspects public.payment_attempts columns/types/nullability/defaults, constraints,
+indexes, table properties, unexpected triggers/rules/RLS, and the directly required
+gen_random_uuid() function and extension membership. It reads no customer rows.
+This is a fixed one-table contract, not a migration/catalog-management framework.
+The approved snapshot and its digest must match the live database before loading
+and again immediately before API replacement. Inaccessible or changed schema fails.
+Out-of-band database changes require pausing automatic deployment and reviewing
+both the policy and baseline. Never automatically adopt the current live schema.
+
+The wrapper validates policy/evidence, baseline, ordering, package, live database,
+network and volume before passing the recorded current release as rollback_safe_from.
+That M7E.5A argument is explicit compatibility authorization, NOT an instruction to
+roll back. No M7E.5A safeguard was removed. Interrupted state and state/order mismatch
+require manual recovery; resume/operations-stopped flags are never supplied here.
+
+Ordering and truthful completion
+--------------------------------
+GitHub concurrency uses queue:max and cancel-in-progress:false. It preserves
+waiting jobs but is not the ordering authority. The host lock and root-owned
+ordering record compare workflow_id and (run_number, run_attempt):
+- Higher run number with a distinct run ID: eligible after all other checks.
+- Same run number, higher attempt: eligible only for the same run ID/version/commit.
+- Equal order and exact same release: retry; M7E.5A revalidates actual health.
+- Older order: refused as stale; no deployment success is reported.
+- Conflicting identities, missing/inconsistent order or interrupted state: fail closed.
+A failed build/publication cannot reach deployment. A newer failed commit does not
+veto a successful earlier run: current-branch-head equality checks were removed.
+Originating run/attempt, commit, approved repository/branch and successful prerequisite
+jobs are still independently checked. No S3 timestamps or latest pointer are used.
+
+The exact release ID flows through build/publish job outputs; the publication output
+also pins SHA256SUMS. All five package files and the archive/image identity remain
+verified. The deployer is conditionally published to releases/deployment-tools/SHA/
+deploy_ec2.py, downloaded conditionally and checksum-verified, then installed root-owned
+0600 under /opt/asaanpay/deployers/SHA.py. Existing matching tool bytes may be reused;
+neither tool nor release objects are overwritten. Host Python needs no checkout/venv.
+
+SSM targets only i-00fc050cde50b051e using AWS-RunShellScript. A fixed systemd unit,
+bootstrap flock and M7E.5A lock prevent overlap. systemd-run --wait/--collect uses
+RuntimeMaxSec=600, TimeoutStopSec=30, KillMode=control-group and SendSIGKILL=yes.
+SSM execution is bounded to 720s; polling is bounded to 780s. Measure these budgets
+on the target. A lost caller does not authorize another uncoordinated deployment.
+SSM Success/exit 0 must also carry a nonce-bound receipt written only after health,
+verified release state and ordering are recorded. A timeout/uncertain submission
+is not retried automatically. Failure can require manual inspection; no automatic
+rollback is enabled. Logs must not include production.env or raw credential output.
+
+Ordered commissioning checklist — NOT EXECUTED BY THIS IMPLEMENTATION
+--------------------------------------------------------------------
+1. LOCAL REVIEW/TEST: Review checker/helpers, fixed schema and the intended baseline.
+   Run Python tests, the workflow guard tests and actionlint/ShellCheck/Bandit.
+   actionlint 1.7.12 lacks concurrency.queue support (upstream issue #657). Its only
+   expected diagnostic is unexpected key "queue" for "concurrency". Validate queue=max
+   and cancel-in-progress=false with the strict workflow tests, then run actionlint
+   with only that exact diagnostic ignored. Do not ignore other syntax diagnostics.
+2. READ-ONLY AWS: Verify account 642195693459/us-east-1, exact branch OIDC trust,
+   target SSM Online/Linux status and attached AsaanPay-EC2-Role. Review existing
+   permissions; never add broad grants. GitHub needs S3 GetObject for releases/*,
+   PutObject for releases/deployment-tools/*, SendCommand for the exact instance and
+   AWS-RunShellScript document, GetCommandInvocation and DescribeInstanceInformation.
+   The latter two read actions need Resource=* with regional restriction. EC2 needs
+   GetObject for release/tool keys and existing SSM access. Inspect any KMS conditions.
+3. READ-ONLY EC2 PAYLOAD: uname -m; cat /etc/os-release; /usr/bin/python3 --version;
+   aws --version; sudo docker version --format '{{.Server.Version}}';
+   sudo docker compose version --short; systemd-run --version.
+   Require AL2023/x86_64, Python 3.9, Docker 25, Compose 2.40.3; inspect disk headroom,
+   root ownership/permissions and existing database/image/volume/network identities.
+   Do not print environment files or full container Env. Sending even read-only
+   payloads through SSM creates AWS command state and needs authorization.
+4. ARTIFACT CHECK: Select an explicit successful CI release, verify the same-run
+   artifact and S3 marker/all five files, and test its actual Docker-save format on
+   the approved runtime. Downloads write local files; Docker load writes daemon
+   storage. Use disposable resources, never replace production during this check.
+5. BASELINE MEASUREMENT/REVIEW: Export the reviewed SCHEMA_SQL locally; run it via
+   psql -X -q -A -t -v ON_ERROR_STOP=1 on the existing database with its existing
+   POSTGRES_USER/POSTGRES_DB. Capture catalog JSON without credentials. Compare it
+   with the disposable approved-schema snapshot and review it before approving
+   schema_digest(snapshot). Record actual full database ID, volume Name/Driver/
+   Options/Mountpoint/CreatedAt, network inspect minus Containers/Peers, and order.
+6. CONTROLLED HOST INSTALLATION (MODIFIES HOST): Approve policy and baseline files.
+   Install root:root 0600 as /opt/asaanpay/config/deployment-policy.json and
+   deployment-baseline.json; preserve production.env and existing resources.
+   Baseline fields: schema_version=1, approval={reviewer,review_reference},
+   policy_sha256, baseline_release_id, live_schema (reviewed snapshot),
+   database_container_id, volume, network, order={workflow_id,run_number,
+   run_attempt,release_id}. For explicitly approved adoption with no deployment
+   state use release_id=null/run_number=0/run_attempt=0 and actual workflow_id.
+   Existing state requires reconciled matching order, not a fabricated zero reset.
+7. DISPOSABLE SUPERVISION TEST (MODIFIES HOST/AWS STATE): With approval, test SSM/
+   systemd success, nonzero exit, timeout and caller interruption in test-only units.
+   Confirm descendant cleanup and missing-receipt failure. Never invoke production
+   deployment merely to test supervision. Preserve root-owned diagnostic evidence.
+8. FIRST LIVE AUTHORIZATION: Approve the enablement commit/first successful run,
+   short downtime and manual recovery procedure. Set commissioned=true in the
+   reviewed host-matched policy and the literal execution gate to "true". Update
+   the static test's uncommissioned-state expectation as part of that review.
+9. DEMONSTRATE SUCCESS: A Git push passes tests/scans, publishes, automatically
+   deploys that exact release, and reports verified health/SSM receipt. Through the
+   existing browser ingress/proxy verify version/commit and a simulated payment.
+   Keep API loopback binding and PostgreSQL private; commission browser ingress
+   separately only if missing. Confirm existing records and DB container/network/
+   volume identities are unchanged (apart from approved unfinished-attempt recovery).
+10. DEMONSTRATE FAILURE: A deliberately failing CI check must produce no deployment.
+    Compare recorded release/API identity before/after. No cleanup may delete the
+    production database volume. There are no per-release approvals after commissioning.
+
+References: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+https://github.com/rhysd/actionlint/issues/657
+https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html
